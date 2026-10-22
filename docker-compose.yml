@@ -1,0 +1,12 @@
+services:
+  zniesione:
+    build: .
+    restart: unless-stopped
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?ustaw SECRET_KEY w pliku .env}
+    volumes:
+      - zniesione-data:/data
+    ports:
+      - "8000:8000"
+volumes:
+  zniesione-data:

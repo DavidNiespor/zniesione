@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>zniesione.pl – portal dla rolników z kurnikami</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef1ec;--sf:#fff;--tx:#1b2a24;--mu:#5d6b64;--ln:#d5dbd3;--ac:#f0b400;--on:#1b2a24;--hd:#1e3a2f;--hdt:#f4f7f2;--ok:#1f7a4a;--no:#b3392f;--wa:#8a6100;color-scheme:light}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1511;--sf:#18221d;--tx:#e8eee9;--mu:#9aa89f;--ln:#2b3a32;--hd:#0a120e;--ok:#5cc28a;--no:#f0847a;--wa:#e8b94a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0e1511;--sf:#18221d;--tx:#e8eee9;--mu:#9aa89f;--ln:#2b3a32;--hd:#0a120e;--ok:#5cc28a;--no:#f0847a;--wa:#e8b94a;color-scheme:dark}
+*{box-sizing:border-box}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+h1,h2,h3,.brand,.big,.price{font-family:"Bricolage Grotesque",Inter,system-ui,sans-serif;line-height:1.15;margin:0}
+h1{font-size:clamp(1.6rem,4.5vw,2.4rem);font-weight:800;letter-spacing:-.02em}
+h2{font-size:1.2rem;margin:1.3rem 0 .6rem}h3{font-size:1.05rem;margin-bottom:.3rem}
+p{margin:.4rem 0}
+header{background:var(--hd);color:var(--hdt)}
+.bar{max-width:1180px;margin:0 auto;padding:.7rem 1rem;display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center;justify-content:space-between}
+.brand{font-size:1.5rem;font-weight:800}.brand b{color:var(--ac)}
+.hb{display:flex;gap:.4rem;flex-wrap:wrap}
+button{font:inherit;cursor:pointer;border:1px solid var(--ln);background:var(--sf);color:var(--tx);border-radius:8px;padding:.45rem .85rem;min-height:44px}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
+header button{background:transparent;color:var(--hdt);border-color:#ffffff40}
+header button.on{background:var(--ac);color:#1b2a24;border-color:var(--ac);font-weight:600}
+.pri{background:var(--ac);color:var(--on);border-color:var(--ac);font-weight:600}
+.ok{color:var(--ok)}.no{color:var(--no)}.wa{color:var(--wa)}.mu{color:var(--mu);font-size:.92rem}
+.wrap{max-width:1180px;margin:0 auto;padding:1rem;display:grid;grid-template-columns:220px 1fr;gap:1.2rem}
+.wrap.one{grid-template-columns:1fr;max-width:1040px}
+nav.sd{display:flex;flex-direction:column;gap:.15rem;align-self:start;position:sticky;top:1rem}
+nav.sd button{text-align:left;border-color:transparent;background:transparent}
+nav.sd button.on{background:var(--hd);color:var(--hdt);font-weight:600}
+.gl{font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);margin:.7rem .6rem .1rem}
+@media(max-width:780px){.wrap{grid-template-columns:1fr}nav.sd{flex-direction:row;overflow-x:auto;position:static;padding-bottom:.3rem}nav.sd button{white-space:nowrap}.gl{display:none}}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:.9rem}
+.kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.7rem;margin:.8rem 0}
+.card{background:var(--sf);border:1px solid var(--ln);border-radius:12px;padding:1rem;margin-bottom:.9rem}
+.kpi .card,.grid .card{margin:0}
+.tag{display:inline-block;border:1px solid var(--ln);border-radius:99px;padding:.05rem .6rem;font-size:.8rem;color:var(--mu);margin:.1rem .2rem .1rem 0}
+.price{font-size:1.5rem;font-weight:800}.big{font-size:1.7rem;font-weight:800}
+input,select,textarea{font:inherit;width:100%;min-height:44px;padding:.45rem .6rem;border:1px solid var(--ln);border-radius:8px;background:var(--bg);color:var(--tx)}
+label{display:block;font-size:.9rem;color:var(--mu);margin:.7rem 0 .2rem}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.7rem}
+.ord{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;justify-content:space-between;border-top:1px solid var(--ln);padding:.7rem 0}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:.4rem .5rem;border-bottom:1px solid var(--ln);white-space:nowrap}td input{min-width:80px}
+svg.ch{width:100%;height:auto}
+pre{overflow-x:auto;background:var(--bg);border:1px solid var(--ln);border-radius:8px;padding:.7rem;font-size:.8rem;width:100%}
+dialog{border:1px solid var(--ln);border-radius:14px;background:var(--sf);color:var(--tx);width:min(460px,calc(100% - 2rem));padding:1.1rem}
+dialog::backdrop{background:#0008}
+.kd{font-family:"Bricolage Grotesque",sans-serif;font-size:2.6rem;font-weight:800;text-align:center;padding:.4rem}
+.kp{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}.kp button{font-size:1.3rem;min-height:54px}
+#toast{position:fixed;left:50%;bottom:calc(1rem + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--hd);color:var(--hdt);padding:.7rem 1.1rem;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90%;z-index:9}
+#toast.s{opacity:1}
+@media(prefers-reduced-motion:reduce){#toast{transition:none}}
+body{font-size:17px}
+.card{border-radius:18px;box-shadow:0 1px 4px #0000000f}
+button{border-radius:12px;min-height:46px}
+nav.sd button{font-size:1rem;padding:.6rem .8rem}
+.hero{background:linear-gradient(135deg,var(--hd),#2f5a45);color:var(--hdt);border-radius:20px;padding:1.2rem 1.3rem;margin-bottom:1rem}
+.hero p{margin:.2rem 0 .9rem;opacity:.85}
+.acts{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.6rem}
+.act{display:flex;flex-direction:column;align-items:flex-start;gap:.2rem;text-align:left;background:#ffffff1f;color:var(--hdt);border:1px solid #ffffff33;border-radius:16px;padding:.8rem;min-height:88px;font-weight:600}
+.act span{font-size:1.7rem}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:.8rem}
+.tile{display:flex;align-items:center;gap:.8rem;background:var(--bg);border-radius:16px;padding:.8rem}
+.tile>div:nth-child(2){flex:1}.ti{font-size:2rem}
+.tg{min-width:110px;border-radius:99px}.tg.on{background:var(--ac);color:var(--on);border-color:var(--ac);font-weight:600}
+.pill{display:inline-block;border-radius:99px;padding:.1rem .7rem;font-size:.82rem;background:var(--bg);border:1px solid var(--ln);font-weight:400}
+.rn{min-height:38px;font-weight:600;padding:.2rem .5rem}
+body{padding-bottom:.5rem}
+.bn{display:none}
+.mt{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.mtile{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:.15rem;padding:1rem;min-height:112px;border-radius:18px}
+.mtile span{font-size:1.9rem}.mtile small{color:var(--mu);font-size:.85rem}
+.big{font-size:1.9rem}
+@media(max-width:780px){nav.sd{display:none}body{padding-bottom:5.5rem}
+.bn{display:flex;position:fixed;left:0;right:0;bottom:0;background:var(--sf);border-top:1px solid var(--ln);padding:.3rem .3rem calc(.3rem + env(safe-area-inset-bottom,0px));gap:.2rem;z-index:5}
+.bn button{flex:1;display:flex;flex-direction:column;align-items:center;gap:0;border:0;background:transparent;font-size:.72rem;min-height:56px;padding:.2rem}
+.bn button span{font-size:1.4rem}.bn button.on{background:var(--bg);font-weight:700}
+#toast{bottom:calc(5.6rem + env(safe-area-inset-bottom,0px))}}
+</style></head><body>
+<header><div class="bar"><div class="brand">zniesione<b>.pl</b></div>
+<div class="hb"><button data-a="mode" data-v="k">Dla klienta</button><button data-a="mode" data-v="p">Panel rolnika</button><button data-a="mode" data-v="a">Admin</button><button data-a="theme" id="tb" aria-label="Zmień motyw"></button></div></div></header>
+<div class="wrap" id="app"></div>
+<dialog id="dlg"><form id="of"><h3 id="dt"></h3><p class="mu" id="dp"></p>
+<label for="od">Produkt</label><select id="od"></select>
+<label for="on">Imię i nazwisko</label><input id="on" required>
+<label for="ot">Telefon</label><input id="ot" type="tel" required>
+<div class="row"><div><label for="oq">Ilość</label><input id="oq" type="number" min="1" max="50" value="3" required></div>
+<div><label for="om">Rodzaj zamówienia</label><select id="om"><option value="">Jednorazowe</option><option>Co tydzień</option><option>Co 2 tygodnie</option></select></div></div>
+<label for="op">Odbiór</label><select id="op"><option>Odbiór osobisty u rolnika</option><option>Dowóz rolnika</option></select>
+<p class="mu">Zamówienie jest wiążące po potwierdzeniu przez rolnika. Płatność przy odbiorze.</p>
+<div class="hb" style="justify-content:flex-end;margin-top:.8rem"><button type="button" data-a="close">Anuluj</button><button class="pri">Wyślij zamówienie</button></div></form></dialog>
+<dialog id="dk"><h3 id="kt"></h3><label for="kd">Data</label><input id="kd" type="date"><div id="kxw"></div><div class="kd" id="kv">0</div>
+<div class="kp" id="kpad"></div><div class="hb" style="justify-content:space-between;margin-top:.6rem"><button data-a="close">Anuluj</button><button data-a="nk" data-v="C">Wyczyść</button></div></dialog>
+<div id="toast" role="status"></div>
+<script>
+var K='zn3',F0=[{n:'Kurnik pod Lipą',m:'Dąbrowa',z:'45-120',c:'Ekologiczny',p:14,s:12,o:'',t:'',e:'',g:'',a:''},{n:'Ekoferma Wierzba',m:'Brzezie',z:'45-300',c:'Wolny wybieg',p:12,s:30},{n:'Gospodarstwo Sowa',m:'Lipowa',z:'46-010',c:'Ściółkowy',p:10,s:8}];
+var FE=[['Kukurydza',30,.9],['Pszenica',25,.9],['Groch',14,1.3],['Łubin słodki',10,1.4],['Owies',6,.8],['Lucerna suszona',4.5,1.2],['Premiks',2.5,8],['Kreda gruba',6.5,.5],['Kreda drobna',1.5,.5]];
+var MP=[['Główne',[['st','🏠 Start'],['ja','🥚 Jaja'],['re','📋 Rezerwacje'],['kl','👥 Klienci']]],['Farma',[['fa','🐔 Stada i budynki'],['sw','🌐 Strona farmy']]],['Biznes',[['fi','💰 Finanse'],['pa','🌾 Pasza'],['pr','🧺 Produkty']]],['Urządzenia',[['ct','🎛️ Sterowanie'],['ste','🔌 Zamów sterownik']]],['Inne',[['ra','📊 Raporty'],['sp','⭐ Społeczność'],['uw','💬 Zgłoś uwagę'],['us','⚙️ Ustawienia']]]];
+var MA=[['ad','Sterowniki i przypisania'],['ae','ESPHome: monitoring i OTA'],['af','Farmy'],['ac','Konfiguracja']];
+var TH={auto:'Motyw: auto',light:'Motyw: jasny',dark:'Motyw: czarny'},LS=['Zamówione','Konfiguracja gotowa','Wysłane do klienta','Online, tunel aktywny'];
+var S,V='k',SUB='st',FL=null,FT='h',CT=0,CQ='',NP={};
+function load(){try{S=JSON.parse(localStorage.getItem(K))}catch(e){S=null}
+if(!S)S={f:F0,o:[],d:[],cl:[],bl:[{n:'Kurnik 1'}],fl:[{n:'Stado 1',b:48,bl:0,w:[],nt:[],h:[]}],j:[],sp:[],fin:[],pr:[],fe:FE,batch:100,r:{kur:48,nies:80,g:120,inne:40,cena:1.4},pts:0,th:'auto',name:'Twoja Farma',fb:[],a:{ep:'wg.zniesione.pl',port:51820,net:'10.8.0',dt:'wg',sda:21,scl:22,led:25}}}
+function save(){try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}}
+var esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+var fm=n=>(isFinite(n)?n:0).toFixed(2).replace('.',','),$=i=>document.getElementById(i),today=()=>new Date().toISOString().slice(0,10);
+function toast(t){var e=$('toast');e.textContent=t;e.className='s';setTimeout(()=>e.className='',2600)}
+function theme(){var r=document.documentElement;if(S.th=='auto')r.removeAttribute('data-theme');else r.setAttribute('data-theme',S.th);$('tb').textContent=TH[S.th]}
+var feedCost=()=>S.fe.reduce((s,r)=>s+r[1]*r[2]/100,0),birds=()=>S.fl.reduce((s,f)=>s+f.b,0);
+function mag(){var s=S.j.reduce((a,e)=>a+e.n-e.u,0);S.o.forEach(o=>{if(o.s=='ok'&&o.pn=='Jaja')s+=-o.q*10});S.sp.forEach(x=>s-=x.q);return Math.max(0,s)}
+function nies(){var t=0;for(var i=0;i<7;i++){var d=new Date(Date.now()-i*864e5).toISOString().slice(0,10);S.j.forEach(e=>{if(e.d==d)t+=e.n})}return birds()?t/7/birds()*100:0}
+function cd(t,b){return '<div class="card"><h3>'+t+'</h3>'+b+'</div>'}
+function rw(a,b){return '<div class="ord"><div>'+a+'</div><div class="hb">'+(b||'')+'</div></div>'}
+function kp(l,v,c,i){return '<div class="card"><div class="mu">'+l+'</div><div class="big '+(c||'')+'" id="'+(i||'')+'">'+v+'</div></div>'}
+function ip(l,p,v,s){return '<div><label>'+l+'</label><input '+(s?'type="number" step="'+s+'"':'')+' value="'+esc(v==null?'':v)+'" oninput="'+p+'=this.type==\'number\'?+this.value:this.value;save();calc()"></div>'}
+function fr(id,fs,b){var h='<form id="'+id+'"><div class="row">';fs.forEach(f=>{var t=f[2]||'text',i=id+'_'+f[0];h+='<div><label for="'+i+'">'+f[1]+'</label>'+(t=='sel'?'<select id="'+i+'">'+f[3].map((o,k)=>'<option value="'+(f[4]?f[4][k]:o)+'">'+esc(o)+'</option>').join('')+'</select>':'<input id="'+i+'" type="'+t+'" '+(f[3]||'')+'>')+'</div>'});return h+'</div><p><button class="pri" style="margin-top:.8rem">'+b+'</button></p></form>'}
+var fv=(id,k)=>$(id+'_'+k).value,fo=()=>S.f.map(f=>f.n),fi_=()=>S.f.map((f,i)=>i);
+function render(){theme();document.querySelectorAll('[data-a=mode]').forEach(b=>b.className=b.dataset.v==V?'on':'');var a=$('app');
+if(V=='k'){a.className='wrap one';a.innerHTML='<div>'+kl()+'</div>';return}
+a.className='wrap';var n='<nav class="sd" aria-label="Moduły">',bt=t=>'<button data-a="sub" data-v="'+t[0]+'"'+(SUB==t[0]?' class="on"':'')+'>'+t[1]+'</button>';
+if(V=='a')MA.forEach(t=>n+=bt(t));else{MP.forEach(g=>{n+='<div class="gl">'+g[0]+'</div>';g[1].forEach(t=>n+=bt(t))});n+='<button data-a="ref">Poleć farmę</button>'}
+a.innerHTML=n+'</nav><div><h1>'+(V=='a'?'Administrator':esc(S.name))+'</h1><p class="mu" style="margin-bottom:1rem">Wersja pokazowa, dane zapisują się w tej przeglądarce.</p>'+P[SUB]()+'</div>'+(V=='p'?bnav():'');calc()}
+function kl(){return '<h1>Jaja prosto od rolnika</h1><p class="mu">Wpisz kod pocztowy lub miejscowość, wybierz gospodarstwo i złóż zamówienie. Rolnik potwierdza je w panelu. Dane gospodarstw są przykładowe.</p><label for="q">Kod pocztowy lub miejscowość</label><input id="q" placeholder="np. 45-120" oninput="flt()"><div class="grid" id="fs" style="margin-top:1rem">'+fcards('')+'</div><h2>Twoje zamówienia</h2><div class="card">'+olist(false)+'</div>'}
+function fcards(q){q=q.toLowerCase();var h='';S.f.forEach((f,i)=>{if(q&&(f.n+f.m+f.z).toLowerCase().indexOf(q)<0)return;var ex='';if(i==0)S.pr.forEach(p=>ex+='<span class="tag">'+esc(p.n)+' '+fm(p.p)+' zł/'+esc(p.u)+'</span>');
+h+='<div class="card"><h3>'+esc(i?f.n:S.name)+'</h3><p class="mu">'+esc(f.z)+' '+esc(f.m)+(f.a?', '+esc(f.a):'')+'</p><p><span class="tag">'+esc(f.c)+'</span>'+ex+'</p>'+(f.o?'<p>'+esc(f.o)+'</p>':'')+(f.t||f.g?'<p class="mu">'+esc(f.t||'')+' '+esc(f.g||'')+'</p>':'')+'<p class="price">'+fm(f.p)+' zł <span class="mu" style="font-weight:400">za 10 szt.</span></p><p class="mu">Dostępne: '+f.s+' opak.</p><button class="pri" data-a="order" data-i="'+i+'"'+(f.s<1?' disabled':'')+'>'+(f.s<1?'Brak jaj':'Zamów')+'</button></div>'});
+return h||'<p class="mu">Brak gospodarstw dla tego wyszukiwania. Spróbuj początku kodu, np. 45.</p>'}
+var flt=()=>$('fs').innerHTML=fcards($('q').value);
+var st=o=>o.s=='ok'?'<b class="ok">Potwierdzone</b>':o.s=='no'?'<b class="no">Odrzucone</b>':'<b class="wa">Czeka na rolnika</b>';
+function olist(pan){var h='';S.o.slice().reverse().forEach(o=>{h+=rw('<b>'+esc(o.fn)+'</b> &middot; '+esc(o.pn)+' &times; '+o.q+' &middot; '+fm(o.t)+' zł<br><span class="mu">'+(pan?esc(o.n)+', '+esc(o.ph)+' &middot; ':'')+esc(o.mode||'Jednorazowe')+' &middot; '+esc(o.pk)+'</span>',pan&&o.s=='w'?'<button class="pri" data-a="conf" data-id="'+o.id+'">Potwierdź</button><button data-a="rej" data-id="'+o.id+'">Odrzuć</button>':st(o))});return h||'<p class="mu">Nie ma jeszcze zamówień.</p>'}
+function chart(){var W=300,H=90,v=[],d=[],mx=1,i;for(i=6;i>=0;i--){var x=new Date(Date.now()-i*864e5).toISOString().slice(0,10),n=0;S.j.forEach(e=>{if(e.d==x)n+=e.n});d.push(x.slice(5));v.push(n);mx=Math.max(mx,n)}
+var p=v.map((n,k)=>(20+k*(W-40)/6).toFixed(0)+','+(H-10-n/mx*(H-30)).toFixed(0)).join(' '),t='';d.forEach((l,k)=>t+='<text x="'+(20+k*(W-40)/6)+'" y="'+(H+10)+'" font-size="9" text-anchor="middle" fill="var(--mu)">'+l+'</text>');
+return '<svg class="ch" viewBox="0 0 '+W+' '+(H+16)+'" role="img" aria-label="Zbiór jaj z ostatnich 7 dni"><polyline points="'+p+'" fill="none" stroke="var(--ac)" stroke-width="3"/>'+t+'</svg>'}
+var HW={
+own:{n:'Własny: ESP32 + SHT31, drzwi i światło',b:'esp32dev',net:'wifi',inf:'Płytka ESP32 z czujnikiem SHT31, silnikiem drzwi i światłem PWM (piny w Konfiguracji).'},
+tr4:{n:'LilyGO T-Relay: ESP32, 4 przekaźniki (najtańszy)',b:'esp32dev',net:'wifi',r:[21,19,18,5],inf:'ESP32-WROVER-E, 4 przekaźniki 10 A, zasilanie 5–24 V DC. Wgranie firmware przez adapter UART (np. T-U2T), bez USB. Tunel: WireGuard.'},
+trs3:{n:'LilyGO T-RelayS3: ESP32-S3, 6 przekaźników, DIN',b:'esp32-s3-devkitc-1',net:'wifi',sr:{d:7,c:5,l:6,n:6},inf:'ESP32-S3, 16 MB flash, 8 MB PSRAM, 6 przekaźników 10 A przez rejestr SN74HC595, szyna DIN, USB-C. Tunel: WireGuard lub Tailscale.'},
+wsp:{n:'Waveshare ESP32-S3-POE-ETH-8DI-8RO-C: 8 wejść, 8 przekaźników, PoE, CAN',b:'esp32-s3-devkitc-1',net:'eth',inf:'ESP32-S3, Ethernet W5500 z PoE, 8 wejść i 8 przekaźników, izolowany CAN. Połączenie kablem, bez Wi-Fi. Piny uzupełnij z dokumentacji Waveshare.'},
+shp:{n:'Shelly Pro 4PM: 4 przekaźniki 16 A z pomiarem mocy, DIN',net:'wifi',shelly:1,inf:'Własny firmware Shelly (nie ESPHome): 4 kanały po 16 A z pomiarem mocy, Wi-Fi i Ethernet, zasilanie 110–240 V AC. Integracja przez MQTT, aktualizacje z poziomu Shelly. Bez konfiguracji YAML i bez OTA z portalu.'}};
+function shellyCfg(c){var a=S.a;return '# Shelly Pro 4PM nie używa ESPHome. Ustawienia w panelu Shelly (Settings, MQTT):\n#\n# Serwer MQTT:        '+a.ep+':8883\n# Identyfikator:      '+c.id+'\n# Prefiks tematów:   kurnik/'+c.id+'\n# TLS:                włączone (certyfikat serwera)\n#\n# Kanały: 0 Światło, 1 Drzwi: otwórz, 2 Drzwi: zamknij, 3 rezerwa\n# Odczyty: moc, napięcie, prąd i energia na każdym kanale\n# Tunel VPN z urządzenia nie jest używany: MQTT z TLS albo router z VPN u rolnika\n# Aktualizacje firmware: panel Shelly\n'}
+function ymlOf(c){var a=S.a,h=HW[c.hw||'own'];if(h.shelly)return shellyCfg(c);var ts=c.v=='ts',i,t=ts?'external_components:\n  - source: github://Csontikka/esphome-tailscale\n\ntailscale:\n  # klucz uwierzytelniający i opcje: README komponentu esphome-tailscale\n':'wireguard:\n  address: '+c.ip+'\n  private_key: !secret wg_privkey\n  peer_endpoint: '+a.ep+'\n  peer_port: '+a.port+'\n  peer_public_key: !secret wg_server_pubkey\n  peer_allowed_ips:\n    - '+a.net+'.1/32\n  peer_persistent_keepalive: 25s\n';
+var nm=k=>k==0?'Światło':k==1?'Drzwi: otwórz':k==2?'Drzwi: zamknij':nmk(c,'c'+k),
+net=h.net=='eth'?'ethernet:\n  type: W5500\n  # clk_pin, mosi_pin, miso_pin, cs_pin, interrupt_pin, reset_pin: wg dokumentacji Waveshare\n\n':'wifi:\n  ssid: !secret wifi_ssid\n  password: !secret wifi_password\n\n',hd='',sw='';
+if(h.r){h.r.forEach((p,k)=>sw+='  - platform: gpio\n    pin: GPIO'+p+'\n    name: '+nm(k)+'\n');hd='switch:\n'+sw}
+else if(h.sr){hd='sn74hc595:\n  - id: sr_hub\n    data_pin: '+h.sr.d+'\n    clock_pin: '+h.sr.c+'\n    latch_pin: '+h.sr.l+'\n    sr_count: 1\n\nswitch:\n';for(i=0;i<h.sr.n;i++)hd+='  - platform: gpio\n    name: '+nm(i)+'\n    pin:\n      sn74hc595: sr_hub\n      number: '+i+'\n'}
+else if(h.net=='eth')hd='# Przekaźniki 1-8, wejścia 1-8 i CAN (GPIO17 TX, GPIO18 RX): piny wg dokumentacji Waveshare\n';
+else hd='i2c:\n  sda: GPIO'+a.sda+'\n  scl: GPIO'+a.scl+'\n\nsensor:\n  - platform: sht3xd\n    address: 0x44\n    temperature:\n      name: Temperatura\n    humidity:\n      name: Wilgotność\n    update_interval: 60s\n\noutput:\n  - platform: ledc\n    pin: GPIO'+a.led+'\n    id: swiatlo_pwm\n\nlight:\n  - platform: monochromatic\n    output: swiatlo_pwm\n    name: Światło\n\n# Drzwi (silnik) i RTC DS3231: do uzupełnienia wg płytki\n';
+return 'esphome:\n  name: '+c.id+'\n  friendly_name: Kurnik '+c.id+'\n\nesp32:\n  board: '+(ts&&h.b=='esp32dev'?'esp32-s3-devkitc-1':h.b)+'\n\n'+net+'api:\n  encryption:\n    key: !secret api_key\n\nota:\n  - platform: esphome\n    password: !secret ota_password\n\ntime:\n  - platform: sntp\n\n'+t+'\n'+hd+(h.r||h.sr?'\n# Funkcje przekaźników (światło, drzwi, wentylacja, grzałka, elektrozawór) ustawia rolnik w portalu\n# Czujnik temperatury i wilgotności (np. SHT31): podłącz do wolnych pinów, nie do pinów przekaźników\n':'')}
+function dev(c,i,adm){var s=c.s||0;return rw('<b>'+esc(c.m)+'</b> &middot; '+c.q+' szt.<br><span class="mu">'+esc(c.id)+' &middot; '+(c.v=='mqtt'?'MQTT':c.v=='ts'?'Tailscale':'WireGuard')+' &middot; '+esc(c.ip)+'<br>'+esc(c.a)+'</span><br><b class="'+(s==3?'ok':'wa')+'">'+(c.off&&s==3?'Brak łączności':LS[s])+'</b>'+(s==3&&c.t!=null&&!c.off?'<br><span class="mu">'+c.t+' °C · '+c.h+' % · firmware '+esc(c.fw||'')+' · '+ago(c)+'</span>':'')+(adm?'<label>Przypisana farma</label><select onchange="S.d['+i+'].farm=+this.value;save();toast(\'Przypisano\')">'+S.f.map((f,k)=>'<option value="'+k+'"'+(c.farm==k?' selected':'')+'>'+esc(f.n)+'</option>').join('')+'</select>':''),(s>=1?'<button data-a="cyaml" data-i="'+i+'">'+(c.y?'Ukryj':'Pokaż')+' konfigurację ESPHome</button>':'')+(adm&&s<3?'<button class="pri" data-a="cnext" data-i="'+i+'">'+['Wygeneruj konfigurację','Oznacz jako wysłane','Symuluj połączenie'][s]+'</button>':''))+(c.y?'<pre>'+esc(ymlOf(c))+'</pre><button data-a="ccopy" data-i="'+i+'">Kopiuj YAML</button>':'')}
+function norm(){S.ol=S.ol||[];S.a.fw=S.a.fw||'v1.1.0';S.a.esp=S.a.esp||'http://esphome:6052';S.d.forEach(c=>c.o=null)}
+function live(c){if(c.s==3&&!c.off){c.t=+(18+Math.random()*6).toFixed(1);c.h=Math.round(50+Math.random()*20);c.seen=Date.now();c.fw=c.fw||'v1.0.0';if((HW[c.hw||'own']||{}).shelly){c.t='–';c.h='–';c.fw='Shelly'}}}
+function ago(c){if(!c.seen)return '–';var m=Math.round((Date.now()-c.seen)/60000);return m<1?'przed chwilą':m+' min temu'}
+function ota(i){var c=S.d[i];if(c.off||c.s!=3||typeof c.o=='number'||(HW[c.hw||'own']||{}).shelly)return;c.o=0;render();var tm=setInterval(()=>{c.o+=20;var e=$('ob'+i);if(e)e.textContent='OTA '+c.o+'%';if(c.o>=100){clearInterval(tm);S.ol.unshift({d:new Date().toLocaleString('pl-PL'),id:c.id,a:c.fw,b:S.a.fw});c.fw=S.a.fw;c.o=null;live(c);save();render();toast('OTA zakończone: '+c.id)}},400)}
+function mon(){S.d.forEach(c=>{if(c.s==3&&!c.seen)live(c)});var up=S.d.filter(c=>c.s==3&&!c.off),of=S.d.filter(c=>c.s==3&&c.off),old=up.filter(c=>c.fw!=S.a.fw&&!(HW[c.hw||'own']||{}).shelly),h='';
+S.d.forEach((c,i)=>{var on=c.s==3,fn=S.f[c.farm]?S.f[c.farm].n:'';h+='<tr><td>'+esc(c.id)+'</td><td>'+esc(fn)+'</td><td>'+(!on?'<span class="mu">Nieaktywny ('+LS[c.s||0]+')</span>':c.off?'<b class="no">Brak łączności</b>':'<b class="ok">Online</b>')+'</td><td>'+(on?ago(c):'–')+'</td><td>'+(on&&!c.off?c.t:'–')+'</td><td>'+(on&&!c.off?c.h:'–')+'</td><td>'+(on?esc(c.fw||''):'–')+'</td><td>'+(on?(typeof c.o=='number'?'<b class="wa" id="ob'+i+'">OTA '+c.o+'%</b>':(c.fw!=S.a.fw&&!c.off&&!(HW[c.hw||'own']||{}).shelly?'<button class="pri" data-a="ota" data-i="'+i+'">Aktualizuj OTA</button> ':'')+'<button data-a="moff" data-i="'+i+'">'+(c.off?'Przywróć łączność':'Symuluj brak łączności')+'</button>'):'')+'</td></tr>'});
+return '<div class="kpi">'+kp('Online',up.length,'ok')+kp('Brak łączności',of.length,of.length?'no':'')+kp('Do aktualizacji OTA',old.length,old.length?'wa':'')+kp('Wersja w portalu',esc(S.a.fw))+'</div>'+cd('Monitoring urządzeń','<p class="mu">Serwer ESPHome łączy się z urządzeniami przez tunel (natywne API ESPHome). W prototypie odczyty i OTA są symulowane.</p><div class="hb" style="margin-bottom:.6rem"><button data-a="mref">Odśwież odczyty</button><button class="pri" data-a="otaall"'+(old.length?'':' disabled')+'>Aktualizuj wszystkie online ('+old.length+')</button></div><div class="tw"><table><tr><th>Urządzenie</th><th>Farma</th><th>Status</th><th>Kontakt</th><th>°C</th><th>%</th><th>Firmware</th><th></th></tr>'+h+'</table></div>'+(S.d.length?'':'<p class="mu">Brak urządzeń. Złóż zamówienie sterownika w panelu rolnika i doprowadź je do stanu online.</p>'))+cd('Wydanie firmware (OTA)','<div class="row">'+ip('Wersja do wdrożenia','S.a.fw',S.a.fw)+'</div><p class="mu">Zmień numer wersji, a urządzenia ze starszą wersją pojawią się jako „Do aktualizacji”. Odśwież widok przyciskiem poniżej.</p><button data-a="mref">Zastosuj wersję</button>')+cd('Historia OTA',S.ol.slice(0,10).map(e=>rw('<b>'+esc(e.id)+'</b><br><span class="mu">'+esc(e.d)+'</span>',esc(e.a)+' → '+esc(e.b))).join('')||'<p class="mu">Brak aktualizacji.</p>')}
+var K4=['tr4','trs3','wsp','shp'],TY={v:['🌀','Wentylacja'],h:['♨️','Grzałka wody'],z:['💧','Elektrozawór'],g:['🔥','Ogrzewanie'],p:['🚰','Pompa'],k:['🍽️','Karmnik'],i:['🔧','Inne']};
+var NCH={own:2,tr4:4,trs3:6,wsp:8,shp:4};
+var hm=t=>{var p=(t||'0:0').split(':');return +p[0]*60+ +p[1]};
+function nmk(c,k){return k=='l'?'Światło':k=='d'?'Drzwi':((c.nm||[])[+k.slice(1)]||'Przekaźnik '+(+k.slice(1)+1))}
+function keys(c){var n=NCH[c.hw||'own']||2,r=['l','d'];for(var i=3;i<n;i++)r.push('c'+i);return r}
+function act(c,k,on,why){if(k=='d')c.door=on?'otwarte':'zamknięte';else{c.st=c.st||{};c.st[k]=on}c.lg=c.lg||[];c.lg.unshift({t:new Date().toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'}),x:(k=='d'?'Drzwi: '+(on?'otwarto':'zamknięto'):nmk(c,k)+': '+(on?'włączono':'wyłączono'))+' ('+why+')'});c.lg=c.lg.slice(0,15)}
+function tick(nd){var n=new Date(),m=n.getHours()*60+n.getMinutes(),wd=n.getDay(),ch=0;
+S.d.forEach((c,i)=>{if(c.s!=3||c.off)return;var sh=(HW[c.hw||'own']||{}).shelly;
+if(!nd&&!sh&&typeof c.t=='number'){c.t=+Math.min(35,Math.max(-5,c.t+(Math.random()-.5)*.8)).toFixed(1);c.h=Math.round(Math.min(95,Math.max(30,c.h+(Math.random()-.5)*3)));c.seen=Date.now()}
+var e=$('tt'+i);if(e)e.textContent=c.t+' °C';e=$('th'+i);if(e)e.textContent=c.h+' %';
+(c.sc||[]).forEach(s=>{if(!s.en)return;var D=s.d=='w'?[1,2,3,4,5]:s.d=='e'?[0,6]:[0,1,2,3,4,5,6],a=hm(s.on),b=hm(s.off),on=(a<b?(m>=a&&m<b):(m>=a||m<b))&&D.indexOf(wd)>=0;if(on!==s.last){s.last=on;act(c,s.k,on,'harmonogram');ch=1}});
+if(typeof c.t=='number')Object.keys(c.th||{}).forEach(k=>{var r=c.th[k],ty=(c.ty||{})[k],cur=!!(c.st||{})[k],ht=ty=='g'||ty=='h';if(!r.on)return;var w=ht?(c.t<r.t?true:c.t>=r.t+1?false:cur):(c.t>r.t?true:c.t<=r.t-1?false:cur);if(w!==cur){act(c,k,w,'termostat');ch=1}})});
+if(ch){save();if(V=='p'&&(SUB=='ct'||SUB=='st')&&!/INPUT|SELECT/.test((document.activeElement||{}).tagName||''))render()}}
+function sty(i,x,v){var d=S.d[i];d.ty=d.ty||{};d.ty['c'+x]=v;save();render()}
+function sth(i,x,on,t){var d=S.d[i];d.th=d.th||{};var r=d.th['c'+x]=d.th['c'+x]||{on:false,t:25};if(on!=null)r.on=on;if(t!=null)r.t=+t;save();tick(1)}
+function bnav(){var T=[['st','🏠','Start'],['ja','🥚','Jaja'],['ct','🎛️','Sterowanie'],['re','📋','Zamówienia'],['mo','☰','Więcej']],main=['st','ja','ct','re'];return '<nav class="bn" aria-label="Menu główne">'+T.map(t=>'<button data-a="sub" data-v="'+t[0]+'"'+((SUB==t[0]||(t[0]=='mo'&&main.indexOf(SUB)<0))?' class="on"':'')+'><span>'+t[1]+'</span>'+t[2]+'</button>').join('')+'</nav>'}
+function stan(){var i=S.d.findIndex(c=>c.farm==0&&c.s==3&&!c.off);if(i<0)return '';var c=S.d[i],l=c.st&&c.st.l;return cd('🐔 Stan kurnika','<div class="tiles">'+tile('🌡️','Temperatura','<b id="tt'+i+'">'+c.t+' °C</b>','')+tile('💧','Wilgotność','<b id="th'+i+'">'+c.h+' %</b>','')+tile('💡','Światło',l?'Włączone':'Wyłączone','<button class="tg'+(l?' on':'')+'" data-a="tg" data-i="'+i+'" data-v="l">'+(l?'Wyłącz':'Włącz')+'</button>')+tile('🚪','Drzwi',c.door||'zamknięte','<button class="tg" data-a="dr" data-i="'+i+'" data-v="'+(c.door=='otwarte'?0:1)+'">'+(c.door=='otwarte'?'Zamknij':'Otwórz')+'</button>')+'</div><p><button data-a="go" data-v="ct">Wszystkie urządzenia i harmonogramy</button></p>')}
+function hero(){var h=new Date().getHours(),w=S.o.filter(o=>o.s=='w').length;return '<div class="hero"><h2 style="margin:0">'+(h<12?'Dzień dobry':h<18?'Miłego dnia':'Dobry wieczór')+'</h2><p>Co dziś robimy w gospodarstwie?</p><div class="acts"><button class="act" data-a="np" data-v="zb"><span>🥚</span>Zbiór jaj</button><button class="act" data-a="np" data-v="sp"><span>🧺</span>Sprzedaż</button><button class="act" data-a="go" data-v="re"><span>📋</span>Zamówienia'+(w?' ('+w+')':'')+'</button><button class="act" data-a="go" data-v="ct"><span>🎛️</span>Sterowanie</button></div></div>'}
+function tile(i,n,s,b){return '<div class="tile"><div class="ti">'+i+'</div><div><b>'+n+'</b><br><span class="mu">'+s+'</span></div>'+b+'</div>'}
+function ctl(){var h='',n=0;S.d.forEach((c,i)=>{if(c.farm!=0)return;n++;
+if(c.s!=3){h+=cd('🔌 '+esc(c.id),'<p class="mu">'+esc(c.m)+'</p><p><span class="pill">'+LS[c.s||0]+'</span></p><p class="mu">Sterowanie będzie dostępne, gdy urządzenie połączy się z portalem.</p>');return}
+if(c.off){h+=cd('🔌 '+esc(c.id),'<p><b class="no">Brak łączności z urządzeniem</b></p><p class="mu">Sprawdź zasilanie i sieć w kurniku. Harmonogramy działają dalej na samym sterowniku.</p>');return}
+c.st=c.st||{};c.nm=c.nm||[];c.door=c.door||'zamknięte';c.sc=c.sc||[];c.ty=c.ty||{};c.th=c.th||{};
+var sh=(HW[c.hw||'own']||{}).shelly,ks=keys(c),ok=typeof c.t=='number';
+h+=cd('🎛️ '+esc(c.id)+' <span class="pill">'+(c.v=='mqtt'?'MQTT':c.v=='ts'?'Tailscale':'WireGuard')+'</span>','<p class="mu">'+esc(c.m)+'</p>');
+h+=cd('🌡️ Odczyty','<div class="tiles">'+tile('🌡️','Temperatura',ok?'<b id="tt'+i+'" class="big">'+c.t+' °C</b>':'brak czujnika','')+tile('💧','Wilgotność',ok?'<b id="th'+i+'" class="big">'+c.h+' %</b>':'brak czujnika','')+'</div>'+(ok?'<label>Temperatura do testów (wersja pokazowa)</label><input type="number" step="0.5" value="'+c.t+'" oninput="S.d['+i+'].t=+this.value;save();tick(1)">':'<p class="mu">Podłącz czujnik temperatury, aby zobaczyć odczyty i włączyć automatykę.</p>'));
+var t=tile('💡',nmk(c,'l'),c.st.l?'Włączone':'Wyłączone','<button class="tg'+(c.st.l?' on':'')+'" aria-pressed="'+!!c.st.l+'" data-a="tg" data-i="'+i+'" data-v="l">'+(c.st.l?'Wyłącz':'Włącz')+'</button>');
+t+=tile('🚪','Drzwi','Teraz: '+c.door,'<div class="hb"><button class="tg'+(c.door=='otwarte'?' on':'')+'" data-a="dr" data-i="'+i+'" data-v="1">Otwórz</button><button class="tg'+(c.door=='zamknięte'?' on':'')+'" data-a="dr" data-i="'+i+'" data-v="0">Zamknij</button></div>');
+h+=cd('💡 Światło i drzwi','<p class="mu">Przekaźniki otwierania i zamykania drzwi nigdy nie działają jednocześnie.</p><div class="tiles">'+t+'</div>');
+var g='';ks.slice(2).forEach(k=>{var x=+k.slice(1),ty=c.ty[k]||'i',th=c.th[k]||{on:false,t:ty=='v'?25:5},on=!!c.st[k],ht=ty=='g'||ty=='h';
+g+='<div class="tile" style="flex-wrap:wrap"><div class="ti">'+TY[ty][0]+'</div><div><input class="rn" aria-label="Nazwa" value="'+esc(nmk(c,k))+'" oninput="S.d['+i+'].nm['+x+']=this.value;save()"><br><span class="mu">'+(on?'Włączone':'Wyłączone')+'</span></div><button class="tg'+(on?' on':'')+'" aria-pressed="'+on+'" data-a="tg" data-i="'+i+'" data-v="'+k+'">'+(on?'Wyłącz':'Włącz')+'</button><div style="width:100%"><label>Rodzaj urządzenia</label><select onchange="sty('+i+','+x+',this.value)">'+Object.keys(TY).map(q=>'<option value="'+q+'"'+(q==ty?' selected':'')+'>'+TY[q][1]+'</option>').join('')+'</select>'+(ok&&(ty=='v'||ht)?'<label><input type="checkbox" style="width:auto;min-height:0" '+(th.on?'checked ':'')+'onchange="sth('+i+','+x+',this.checked,null)"> Automatyka: włącz '+(ht?'poniżej':'powyżej')+' temperatury (°C)</label><input type="number" step="0.5" value="'+th.t+'" oninput="sth('+i+','+x+',null,this.value)">':'')+'</div></div>'});
+if(g)h+=cd('🌀 Wentylacja, grzanie, woda i inne','<p class="mu">Nazwij urządzenie, wybierz jego rodzaj (wentylacja, grzałka wody, elektrozawór i inne) i ustaw automatykę według temperatury.</p><div class="tiles">'+g+'</div>');
+var sc=c.sc.map((s,j)=>rw('<b>'+esc(nmk(c,s.k))+'</b> '+s.on+' – '+s.off+'<br><span class="mu">'+({a:'Codziennie',w:'Pn–Pt',e:'Weekend'})[s.d]+(s.k=='d'?' · otwarcie '+s.on+', zamknięcie '+s.off:'')+'</span>','<button class="tg'+(s.en?' on':'')+'" data-a="se" data-i="'+i+'" data-v="'+j+'">'+(s.en?'Włączony':'Wyłączony')+'</button><button data-a="sd" data-i="'+i+'" data-v="'+j+'">Usuń</button>')).join('');
+h+=cd('⏰ Harmonogramy','<p class="mu">Dla drzwi: pierwsza godzina to otwarcie, druga to zamknięcie.</p>'+(sc||'<p class="mu">Brak harmonogramów. Dodaj pierwszy poniżej, np. światło od 05:30 do 07:00.</p>')+fr('sc'+i,[['k','Co sterować','sel',ks.map(k=>nmk(c,k)),ks],['on','Włącz / otwórz o','time','value="06:00" required'],['off','Wyłącz / zamknij o','time','value="18:00" required'],['d','Dni','sel',['Codziennie','Pn–Pt','Weekend'],['a','w','e']]],'Dodaj harmonogram'));
+h+=cd('🕘 Ostatnie zdarzenia',(c.lg||[]).map(e=>rw(esc(e.x),'<span class="mu">'+e.t+'</span>')).join('')||'<p class="mu">Jeszcze nic się nie wydarzyło.</p>')});
+return n?'<p class="mu">Wersja pokazowa: polecenia, odczyty i automatyka działają w symulacji, bez prawdziwego sterownika.</p>'+h:cd('🎛️ Sterowanie kurnikiem','<p>Nie masz jeszcze sterownika przypisanego do tej farmy.</p><button class="pri" data-a="go" data-v="ste">Zamów sterownik</button>')}
+function fd(i){var f=S.fl[i],h='<p><button data-a="flb">&larr; Wróć</button></p>'+cd(esc(f.n),'<p class="mu">'+f.b+' szt. &middot; '+esc(S.bl[f.bl]?S.bl[f.bl].n:'bez budynku')+(f.w.length?' &middot; ostatnia waga '+f.w[f.w.length-1].g+' g':'')+'</p><div class="hb">'+[['ad','Dodaj ptaki'],['wg','Zapisz wagę (g)'],['rm','Usuń ptaki']].map(b=>'<button class="'+(b[0]=='ad'?'pri':'')+'" data-a="np" data-v="'+b[0]+'" data-i="'+i+'">'+b[1]+'</button>').join('')+'</div>');
+h+='<div class="hb" style="margin-bottom:.6rem"><button data-a="ft" data-v="h"'+(FT=='h'?' class="pri"':'')+'>Historia ('+f.h.length+')</button><button data-a="ft" data-v="n"'+(FT=='n'?' class="pri"':'')+'>Notatki ('+f.nt.length+')</button></div>';
+if(FT=='h')h+=cd('Historia działań',f.h.slice().reverse().map(e=>rw('<b>'+esc(e.t)+'</b><br><span class="mu">'+e.d+'</span>')).join('')||'<p class="mu">Brak wpisów.</p>');
+else h+=cd('Notatki',fr('ntf',[['t','Nowa notatka','text','required']],'Dodaj notatkę')+f.nt.slice().reverse().map(e=>rw(esc(e.t)+'<br><span class="mu">'+e.d+'</span>')).join(''));
+return h}
+var P={
+st:()=>hero()+stan()+'<div class="kpi">'+kp('Jaja w magazynie',mag())+kp('Ptaki',birds())+kp('Nieśność (7 dni)',nies().toFixed(0)+'%')+kp('Punkty',S.pts)+'</div>'+cd('Zbiór, ostatnie 7 dni',chart())+cd('Szybkie akcje','<div class="hb"><button class="pri" data-a="np" data-v="zb">Zbiór jaj</button><button data-a="np" data-v="sp">Sprzedaż jaj</button><button data-a="go" data-v="re">Rezerwacje ('+S.o.filter(o=>o.s=='w').length+')</button></div><p class="mu">Pierwszy zapis zbioru każdego dnia: +10 punktów.</p>'),
+ct:()=>ctl(),
+mo:()=>{var L=[['kl','👥','Klienci','Klienci i ich zamówienia'],['fa','🐔','Stada i budynki','Ptaki, waga, historia, notatki'],['sw','🌐','Strona farmy','Dane widoczne dla klientów'],['fi','💰','Finanse','Koszty, przychody, opłacalność'],['pa','🌾','Pasza','Receptura i koszt mieszanki'],['pr','🧺','Produkty','Cena jaj i inne produkty'],['ste','🔌','Zamów sterownik','Nowy sterownik do kurnika'],['ra','📊','Raporty','Sprzedaż i zbiór jaj'],['sp','⭐','Społeczność','Twoje punkty'],['uw','💬','Zgłoś uwagę','Napisz, co poprawić'],['us','⚙️','Ustawienia','Nazwa farmy i motyw']];return '<div class="grid mt">'+L.map(x=>'<button class="mtile" data-a="go" data-v="'+x[0]+'"><span>'+x[1]+'</span><b>'+x[2]+'</b><small>'+x[3]+'</small></button>').join('')+'</div>'},
+ja:()=>'<div class="kpi">'+kp('Jaja w magazynie',mag())+'</div><div class="hb" style="margin-bottom:.9rem"><button class="pri" data-a="np" data-v="zb">Zapisz zbiór</button><button data-a="np" data-v="sp">Sprzedaż jaj</button></div>'+cd('Ostatnie zbiory',S.j.slice().sort((a,b)=>a.d<b.d?1:-1).slice(0,8).map(e=>rw('<b>'+e.d+'</b>',e.n+' szt., uszkodzone '+e.u)).join('')||'<p class="mu">Brak zapisów.</p>')+cd('Sprzedaż z magazynu',S.sp.slice().reverse().slice(0,8).map(e=>rw('<b>'+e.d+'</b>',e.q+' szt.')).join('')||'<p class="mu">Brak sprzedaży.</p>'),
+re:()=>cd('Rezerwacje i zamówienia','<p class="mu">Rolnik potwierdza każde zamówienie, także cykliczne.</p>'+olist(true)),
+kl:()=>{var l=S.cl.map((c,i)=>[c,i]).filter(x=>!!x[0].del==!!CT&&(x[0].n+x[0].ph).toLowerCase().indexOf(CQ.toLowerCase())>=0);
+return '<div class="hb" style="margin-bottom:.6rem"><button data-a="ct" data-v="0"'+(!CT?' class="pri"':'')+'>Aktualni ('+S.cl.filter(c=>!c.del).length+')</button><button data-a="ct" data-v="1"'+(CT?' class="pri"':'')+'>Usunięci ('+S.cl.filter(c=>c.del).length+')</button></div>'+cd('Klienci','<input placeholder="Szukaj po nazwie lub telefonie" value="'+esc(CQ)+'" oninput="CQ=this.value;render();this.focus()">'+(l.map(x=>rw('<b>'+esc(x[0].n)+'</b><br><span class="mu">'+esc(x[0].ph)+'</span>','<button data-a="cdel" data-i="'+x[1]+'">'+(CT?'Przywróć':'Usuń')+'</button>')).join('')||'<p class="mu">Nie znaleziono klienta.</p>'))+cd('Dodaj klienta',fr('clf',[['n','Imię i nazwisko','text','required'],['p','Telefon','tel','required']],'Dodaj klienta'))},
+fa:()=>{if(FL!=null&&S.fl[FL])return fd(FL);var h=cd('Budynki',S.bl.map(b=>rw(esc(b.n))).join('')+fr('blf',[['n','Nazwa budynku','text','required']],'Dodaj budynek'));
+h+=cd('Stada',S.fl.map((f,i)=>rw('<b>'+esc(f.n)+'</b><br><span class="mu">'+f.b+' szt. &middot; '+esc(S.bl[f.bl]?S.bl[f.bl].n:'bez budynku')+'</span>','<button class="pri" data-a="fl" data-i="'+i+'">Otwórz</button>')).join('')+fr('stf',[['n','Nazwa stada','text','required'],['b','Liczba ptaków','number','min="1" required'],['k','Budynek','sel',S.bl.map(b=>b.n),S.bl.map((b,i)=>i)]],'Dodaj stado'));return h},
+sw:()=>{var f=S.f[0];return cd('Strona Twojej Farmy','<p class="mu">Dane widoczne dla klientów w wizytówce gospodarstwa.</p><div class="row">'+ip('Opis','S.f[0].o',f.o)+ip('Telefon','S.f[0].t',f.t)+ip('E-mail','S.f[0].e',f.e)+ip('Godziny odbioru','S.f[0].g',f.g)+ip('Adres dojazdu','S.f[0].a',f.a)+'</div><p><button class="pri" data-a="mode" data-v="k" style="margin-top:.8rem">Zobacz jako klient</button></p>')},
+fi:()=>{var p=0,k=0,z=S.o.reduce((s,o)=>s+(o.s=='ok'?o.t:0),0),r=S.r;S.fin.forEach(e=>e.t=='p'?p+=e.k:k+=e.k);
+return '<div class="kpi">'+kp('Przychody',fm(p+z)+' zł','ok')+kp('Koszty',fm(k)+' zł','no')+kp('Wynik',fm(p+z-k)+' zł')+'</div>'+cd('Dodaj wpis',fr('ff',[['t','Typ','sel',['Koszt','Przychód'],['k','p']],['o','Opis','text','required'],['k','Kwota (zł)','number','step="0.01" min="0" required']],'Zapisz wpis'))+cd('Wpisy',S.fin.map(e=>rw('<b>'+esc(e.o)+'</b><br><span class="mu">'+e.d+'</span>','<span class="'+(e.t=='p'?'ok':'no')+'">'+(e.t=='p'?'+':'−')+fm(e.k)+' zł</span>')).join('')||'<p class="mu">Brak wpisów. Przychody z potwierdzonych zamówień ('+fm(z)+' zł) liczą się automatycznie.</p>')+cd('Kontrola rentowności','<p class="mu">Wartości przykładowe. Koszt paszy z receptury.</p><div class="row">'+ip('Liczba kur','S.r.kur',r.kur,1)+ip('Nieśność %','S.r.nies',r.nies,1)+ip('Pasza g/kurę/dzień','S.r.g',r.g,1)+ip('Inne koszty dziennie (zł)','S.r.inne',r.inne,1)+ip('Cena jajka (zł)','S.r.cena',r.cena,.05)+'</div><div class="kpi">'+kp('Jaj dziennie','','','rj')+kp('Koszt jajka','','','rk')+kp('Marża na jajku','','','rm')+kp('Marża / miesiąc','','','rn')+'</div>')},
+pa:()=>cd('Receptura paszy i mieszalnia','<p class="mu">Wartości przykładowe. Wpisz własne udziały (%) i koszty surowców (zł/kg).</p><div class="tw"><table><tr><th>Surowiec</th><th>Udział %</th><th>zł/kg</th><th>kg w partii</th></tr>'+S.fe.map((r,i)=>'<tr><td>'+esc(r[0])+'</td><td><input type="number" step="0.1" value="'+r[1]+'" oninput="S.fe['+i+'][1]=+this.value;save();calc()"></td><td><input type="number" step="0.05" value="'+r[2]+'" oninput="S.fe['+i+'][2]=+this.value;save();calc()"></td><td id="k'+i+'"></td></tr>').join('')+'</table></div><div class="row">'+ip('Wielkość partii (kg)','S.batch',S.batch,1)+'</div><div class="kpi">'+kp('Suma udziałów','','','ps')+kp('Koszt 1 kg','','','pk')+kp('Koszt partii','','','pb')+'</div>'),
+pr:()=>{var f=S.f[0];return cd('Oferta jaj','<div class="row">'+ip('Cena za 10 szt. (zł)','S.f[0].p',f.p,.5)+ip('Dostępne opakowania','S.f[0].s',f.s,1)+'</div>')+cd('Inne produkty',S.pr.map((p,i)=>rw('<b>'+esc(p.n)+'</b><br><span class="mu">'+fm(p.p)+' zł/'+esc(p.u)+'</span>','<button data-a="delp" data-i="'+i+'">Usuń</button>')).join('')+(S.pr.length?'':'<p class="mu">Dodaj np. miód, przetwory albo kurczaki. Klient zobaczy je przy Twoim gospodarstwie.</p>')+fr('pf',[['n','Nazwa','text','required'],['u','Jednostka','text','value="szt." required'],['c','Cena (zł)','number','step="0.01" min="0" required']],'Dodaj produkt'))},
+ste:()=>cd('Zamów sterownik kurnika',fr('cf',[['m','Model sterownika','sel',K4.map(k=>HW[k].n),K4],['q','Sztuk','number','min="1" value="1"'],['a','Adres dostawy','text','required'],['v','Połączenie z serwerem','sel',['WireGuard (zalecane)','Tailscale (ESP32-S3 z PSRAM)'],['wg','ts']]],'Zamów sterownik')+K4.map(k=>'<p class="mu"><b>'+esc(HW[k].n)+'</b>: '+esc(HW[k].inf)+'</p>').join('')+'<p class="mu"><b>Do portalu można podłączyć tylko sterowniki zakupione u nas.</b> Urządzeń własnych nie można dodać. Po zamówieniu przypisujemy sterownik do Twojej farmy i przygotowujemy konfigurację.</p>')+cd('Twoje sterowniki',S.d.map((c,i)=>c.farm==0?dev(c,i,false):'').join('')||'<p class="mu">Brak sterowników.</p>'),
+ra:()=>{var a=S.o.filter(o=>o.s=='ok'),sum=a.reduce((s,o)=>s+o.t,0);return cd('Raport sprzedaży','<div class="kpi">'+kp('Zamówienia',S.o.length)+kp('Potwierdzone',a.length)+kp('Cykliczne',a.filter(o=>o.mode).length)+kp('Przychód',fm(sum)+' zł')+'</div><button data-a="csv">Kopiuj raport jako CSV</button>')+cd('Zbiór, 7 dni',chart())},
+sp:()=>cd('Społeczność','<p class="big">'+S.pts+' pkt</p><p class="mu">Punkty dostajesz za pierwszy zapis zbioru każdego dnia (+10). Ranking z innymi gospodarstwami pojawi się, gdy portal będzie miał więcej użytkowników.</p>'),
+uw:()=>cd('Zgłoś uwagę',fr('uf',[['t','Co nie działa albo co poprawić?','text','required']],'Wyślij uwagę')+'<p class="mu">Zapisano uwag: '+S.fb.length+'</p>'),
+us:()=>cd('Ustawienia','<div class="row">'+ip('Nazwa gospodarstwa','S.name',S.name)+'</div><label>Motyw</label><div class="hb">'+Object.keys(TH).map(k=>'<button data-a="th" data-v="'+k+'"'+(S.th==k?' class="pri"':'')+'>'+TH[k].slice(7)+'</button>').join('')+'</div>')+cd('Dane pokazowe','<button data-a="reset">Wyczyść wszystkie dane</button>'),
+ae:()=>mon(),
+ad:()=>cd('Dodaj sterownik do farmy','<p class="mu">Rejestruj tylko sprzęt sprzedany przez Ciebie.</p>'+fr('adf',[['m','Model','sel',K4.map(k=>HW[k].n),K4],['f','Farma','sel',fo(),fi_()],['a','Adres lub opis','text','required']],'Dodaj sterownik'))+'<div class="kpi">'+kp('Sterowniki',S.d.length)+kp('Online',S.d.filter(c=>c.s==3).length,'ok')+kp('Do obsługi',S.d.filter(c=>c.s<3).length,'wa')+'</div>'+cd('Sterowniki i przypisania do farm','<p class="mu">Zamówienia sterowników od rolników. Przypisz urządzenie do farmy i prowadź je przez kolejne etapy.</p>'+(S.d.map((c,i)=>dev(c,i,true)).join('')||'<p class="mu">Brak zamówień. Złóż je w panelu rolnika.</p>')),
+af:()=>cd('Farmy',S.f.map((f,i)=>rw('<b>'+esc(i?f.n:S.name)+'</b><br><span class="mu">'+esc(f.z)+' '+esc(f.m)+' &middot; sterowników: '+S.d.filter(c=>c.farm==i).length+'</span>')).join('')+fr('aff',[['n','Nazwa','text','required'],['m','Miejscowość','text','required'],['z','Kod pocztowy','text','required'],['c','Chów','sel',['Ekologiczny','Wolny wybieg','Ściółkowy']]],'Dodaj farmę')),
+ac:()=>{var a=S.a;return cd('Konfiguracja tunelu i ESPHome','<div class="row">'+ip('Adres serwera WireGuard','S.a.ep',a.ep)+ip('Port','S.a.port',a.port,1)+ip('Podsieć (3 oktety)','S.a.net',a.net)+'</div><label>Domyślne połączenie</label><select onchange="S.a.dt=this.value;save()"><option value="wg"'+(a.dt=='wg'?' selected':'')+'>WireGuard</option><option value="ts"'+(a.dt=='ts'?' selected':'')+'>Tailscale</option></select><p class="mu">Zmiany od razu trafiają do nowo generowanych konfiguracji YAML.</p>')+cd('Piny w szablonie sterownika','<div class="row">'+ip('SDA (GPIO)','S.a.sda',a.sda,1)+ip('SCL (GPIO)','S.a.scl',a.scl,1)+ip('Światło PWM (GPIO)','S.a.led',a.led,1)+'</div>')+cd('Serwer ESPHome','<div class="row">'+ip('Adres ESPHome Device Builder','S.a.esp',a.esp)+'</div><p class="mu">Portal wysyła do niego wygenerowany YAML, a ten buduje firmware i wgrywa go przez OTA po tunelu. W prototypie nie ma prawdziwego połączenia.</p>')}};
+function calc(){var b=S.batch,s=0;S.fe.forEach((r,i)=>{s+=r[1];var e=$('k'+i);if(e)e.textContent=fm(b*r[1]/100)});
+if($('ps')){$('ps').textContent=fm(s)+'%';$('ps').className='big '+(Math.abs(s-100)<.05?'ok':'no');$('pk').textContent=fm(feedCost())+' zł';$('pb').textContent=fm(feedCost()*b)+' zł'}
+if($('rj')){var r=S.r,j=r.kur*r.nies/100,kd=r.g/1000*r.kur*feedCost()+r.inne,kj=j?kd/j:0,mj=r.cena-kj;$('rj').textContent=Math.round(j);$('rk').textContent=fm(kj)+' zł';$('rm').textContent=fm(mj)+' zł';$('rm').className='big '+(mj>=0?'ok':'no');$('rn').textContent=fm(mj*j*30)+' zł'}}
+function npOpen(m,i){NP={m:m,i:i,v:''};var T={zb:'Zbiór jaj',sp:'Sprzedaż jaj',ad:'Dodaj ptaki',wg:'Zapisz wagę (g)',rm:'Usuń ptaki'},x='';
+if(m=='rm'){x='<label for="kx">Powód</label><select id="kx"><option>Sprzedaż</option><option>Upadek</option><option>Ubój</option>'+S.fl.map((f,k)=>k==i?'':'<option value="T'+k+'">Przeniesienie do: '+esc(f.n)+'</option>').join('')+'</select>'}
+$('kt').textContent=T[m]+(m=='sp'?' (w magazynie: '+mag()+' szt.)':'');$('kd').value=today();$('kxw').innerHTML=x;$('kv').textContent='0';
+$('kpad').innerHTML=[1,2,3,4,5,6,7,8,9,'⌫',0,'✓'].map(k=>'<button data-a="nk" data-v="'+k+'"'+(k=='✓'?' class="pri"':'')+'>'+k+'</button>').join('');$('dk').showModal()}
+function npKey(k){if(k=='C')NP.v='';else if(k=='⌫')NP.v=NP.v.slice(0,-1);else if(k!='✓'){if(NP.v.length<5)NP.v+=k}
+else{var n=+NP.v,m=NP.m,d=$('kd').value||today(),f=S.fl[NP.i];if(!n){toast('Wpisz liczbę');return}
+if(m=='zb'){var x=S.j.filter(z=>z.d==d)[0];if(x)x.n+=n;else{S.j.push({d:d,n:n,u:0});if(d==today())S.pts+=10}}
+else if(m=='sp'){if(n>mag()){toast('Za mało jaj w magazynie');return}S.sp.push({d:d,q:n})}
+else if(m=='ad'){f.b+=n;f.h.push({d:d,t:'Dodano ptaki: +'+n})}
+else if(m=='wg'){f.w.push({d:d,g:n});f.h.push({d:d,t:'Waga: '+n+' g'})}
+else if(m=='rm'){var r=$('kx').value;if(n>f.b){toast('Stado ma tylko '+f.b+' szt.');return}f.b-=n;if(r[0]=='T'&&r.length<4){var g=S.fl[+r.slice(1)];g.b+=n;f.h.push({d:d,t:'Przeniesiono '+n+' szt. do: '+g.n});g.h.push({d:d,t:'Przyjęto '+n+' szt. z: '+f.n})}else f.h.push({d:d,t:r+': −'+n})}
+save();$('dk').close();render();toast('Zapisano');return}
+$('kv').textContent=NP.v||'0'}
+document.addEventListener('click',e=>{var b=e.target.closest('[data-a]');if(!b)return;var a=b.dataset.a,d=b.dataset;
+if(a=='mode'){V=d.v;SUB=V=='a'?'ad':'st';FL=null;render()}
+else if(a=='sub'||a=='go'){SUB=d.v;FL=null;render()}
+else if(a=='theme'){var o=['auto','light','dark'];S.th=o[(o.indexOf(S.th)+1)%3];save();render()}
+else if(a=='th'){S.th=d.v;save();render()}
+else if(a=='order'){var f=S.f[d.i],h='<option value="J">Jaja, opakowanie 10 szt. ('+fm(f.p)+' zł)</option>';if(+d.i==0)S.pr.forEach((p,i)=>h+='<option value="'+i+'">'+esc(p.n)+' ('+fm(p.p)+' zł/'+esc(p.u)+')</option>');$('od').innerHTML=h;$('dlg').dataset.f=d.i;$('dt').textContent='Zamówienie: '+(+d.i?f.n:S.name);$('dp').textContent=f.z+' '+f.m;$('dlg').showModal()}
+else if(a=='close'){$('dlg').close();$('dk').close()}
+else if(a=='np')npOpen(d.v,+d.i)
+else if(a=='nk')npKey(d.v)
+else if(a=='conf'||a=='rej'){S.o.forEach(o=>{if(o.id==d.id){o.s=a=='conf'?'ok':'no';if(a=='conf'&&o.pn=='Jaja')S.f[o.fi].s=Math.max(0,S.f[o.fi].s-o.q)}});save();render();toast(a=='conf'?'Zamówienie potwierdzone':'Zamówienie odrzucone')}
+else if(a=='fl'){FL=+d.i;FT='h';render()}
+else if(a=='flb'){FL=null;render()}
+else if(a=='ft'){FT=d.v;render()}
+else if(a=='ct'){CT=+d.v;render()}
+else if(a=='cdel'){S.cl[d.i].del=!S.cl[d.i].del;save();render()}
+else if(a=='delp'){S.pr.splice(d.i,1);save();render()}
+else if(a=='mref'){S.d.forEach(live);save();render()}
+else if(a=='tg'){var c3=S.d[d.i];act(c3,d.v,!(c3.st&&c3.st[d.v]),'ręcznie');save();render()}
+else if(a=='dr'){act(S.d[d.i],'d',d.v=='1','ręcznie');save();render()}
+else if(a=='se'){var s3=S.d[d.i].sc[d.v];s3.en=!s3.en;s3.last=undefined;save();render()}
+else if(a=='sd'){S.d[d.i].sc.splice(d.v,1);save();render()}
+else if(a=='ota')ota(+d.i)
+else if(a=='otaall'){S.d.forEach((c,i)=>{if(c.s==3&&!c.off&&c.fw!=S.a.fw)ota(i)})}
+else if(a=='moff'){var c2=S.d[d.i];c2.off=!c2.off;if(!c2.off)live(c2);save();render()}
+else if(a=='cnext'){var c=S.d[d.i];c.s=(c.s||0)+1;if(c.s==1)c.y=true;if(c.s==3){c.fw='v1.0.0';live(c)}save();render();toast(['','Konfiguracja ESPHome wygenerowana','Oznaczono jako wysłane','Sterownik online (symulacja)'][c.s])}
+else if(a=='cyaml'){S.d[d.i].y=!S.d[d.i].y;save();render()}
+else if(a=='ccopy'||a=='ref'||a=='csv'){var t=a=='ccopy'?ymlOf(S.d[d.i]):a=='ref'?location.href:'id;gospodarstwo;produkt;ilosc;rodzaj;odbior;status;kwota\n'+S.o.map(o=>[o.id,o.fn,o.pn,o.q,o.mode||'jednorazowe',o.pk,o.s,o.t].join(';')).join('\n');
+try{navigator.clipboard.writeText(t).then(()=>toast('Skopiowano'),()=>toast('Nie udało się skopiować'))}catch(x){toast('Nie udało się skopiować')}}
+else if(a=='reset'){if(confirm('Wyczyścić wszystkie dane pokazowe?')){try{localStorage.removeItem(K)}catch(x){}load();norm();render()}}});
+document.addEventListener('submit',e=>{e.preventDefault();var id=e.target.id,f;
+if(id=='of'){var i=+$('dlg').dataset.f,fa=S.f[i],q=+$('oq').value,v=$('od').value,pn='Jaja',pc=fa.p;if(v!='J'){pn=S.pr[+v].n;pc=S.pr[+v].p}
+S.o.push({id:Date.now(),fi:i,fn:i?fa.n:S.name,n:$('on').value,ph:$('ot').value,q:q,pn:pn,mode:$('om').value,pk:$('op').value,t:q*pc,s:'w'});
+if(!S.cl.some(c=>c.ph==$('ot').value))S.cl.push({n:$('on').value,ph:$('ot').value});save();$('dlg').close();e.target.reset();render();toast('Zamówienie wysłane. Czeka na potwierdzenie rolnika.')}
+else{if(id=='cf'){var a=S.a,n=S.d.length;var hk=fv(id,'m'),vv=fv(id,'v');if(hk=='tr4'&&vv=='ts'){vv='wg';toast('T-Relay (ESP32) używa WireGuard')}if(hk=='shp')vv='mqtt';S.d.push({hw:hk,m:HW[hk].n,q:+fv(id,'q'),a:fv(id,'a'),v:vv,id:'kurnik-'+Math.random().toString(36).slice(2,6),ip:a.net+'.'+(10+n),farm:0,s:0,y:false})}
+if(id=='clf')S.cl.push({n:fv(id,'n'),ph:fv(id,'p')});
+if(id=='blf')S.bl.push({n:fv(id,'n')});
+if(id=='stf')S.fl.push({n:fv(id,'n'),b:+fv(id,'b'),bl:+fv(id,'k'),w:[],nt:[],h:[{d:today(),t:'Utworzono stado: '+fv(id,'b')+' szt.'}]});
+if(id=='ntf')S.fl[FL].nt.push({d:today(),t:fv(id,'t')});
+if(id=='ff')S.fin.push({d:today(),t:fv(id,'t'),o:fv(id,'o'),k:+fv(id,'k')});
+if(id=='pf')S.pr.push({n:fv(id,'n'),u:fv(id,'u'),p:+fv(id,'c')});
+if(id=='uf')S.fb.push({d:today(),t:fv(id,'t')});
+if(id=='adf'){var k4=fv(id,'m');S.d.push({hw:k4,m:HW[k4].n,q:1,a:fv(id,'a'),v:k4=='shp'?'mqtt':'wg',id:'kurnik-'+Math.random().toString(36).slice(2,6),ip:S.a.net+'.'+(10+S.d.length),farm:+fv(id,'f'),s:0,y:false})}
+if(id.slice(0,2)=='sc'){var cc=S.d[+id.slice(2)];cc.sc=cc.sc||[];cc.sc.push({k:fv(id,'k'),on:fv(id,'on'),off:fv(id,'off'),d:fv(id,'d'),en:true});tick()}
+if(id=='aff')S.f.push({n:fv(id,'n'),m:fv(id,'m'),z:fv(id,'z'),c:fv(id,'c'),p:12,s:0});
+save();render();toast('Zapisano')}});
+load();norm();tick();render();setInterval(tick,20000);
+</script></body></html>
