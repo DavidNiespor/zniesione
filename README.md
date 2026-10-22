@@ -27,6 +27,23 @@ sterowanie z blokadą drzwi, harmonogramy (także przez północ), termostat z h
 - Limit prób logowania, reset hasła, e-mail/SMS do rolnika, płatności online.
 - Integracja z e-kurnik (`stan_magazynu`): tu zapas to prosty licznik `farms.stock`.
 
+## Windows (PowerShell)
+Potrzebne są dwa okna PowerShella w katalogu projektu. Polecenia `export` i `&` z poniższej sekcji dla Linuxa tam nie działają,
+a `flask` często nie jest w PATH, więc używaj `python -m flask`. Gunicorn nie działa na Windows, do testów wystarczy serwer Flaska.
+
+Okno 1 (atrapa sterownika):
+
+    python tools/fake_device.py 9000
+
+Okno 2 (portal):
+
+    $env:DATABASE="$PWD\zn.db"; $env:SECRET_KEY="test"; $env:DEVICE_BASE="http://127.0.0.1:9000"; $env:RUN_SCHEDULER="1"
+    python -m flask --app zniesione seed-demo
+    python -m flask --app zniesione run
+
+Potem otwórz http://127.0.0.1:5000. Seed działa tylko na pustej bazie, więc przed ponownym uruchomieniem usuń plik `zn.db`.
+Testy: `python -m pytest -q`. Skrypt `tests/e2e/run.sh` wymaga powłoki sh (Linux, macOS, WSL albo Git Bash).
+
 ## Testy funkcjonalne (ręczne)
     export DATABASE=/tmp/zn.db SECRET_KEY=test DEVICE_BASE=http://127.0.0.1:9000 RUN_SCHEDULER=1
     python tools/fake_device.py 9000 &          # atrapa sterownika: wypisuje polecenia, GET /state pokazuje stan
