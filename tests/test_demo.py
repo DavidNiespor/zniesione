@@ -10,7 +10,7 @@ from zniesione import services as sv
 
 
 def test_seed_demo_and_ui_served(app):
-    app.config["SEND"] = sv.send_http
+    runner = app.test_cli_runner()
     out = runner.invoke(args=["seed-demo"])
     assert out.exit_code != 0  # baza ma już admina z fixture
     assert "zniesione.pl" in app.test_client().get("/").get_data(as_text=True)
