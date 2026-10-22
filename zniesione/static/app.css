@@ -48,6 +48,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .ghost{background:transparent}.sm{min-height:44px;padding:.35rem .7rem;font-size:.92rem}
 .danger{color:var(--no)}
 :focus-visible{outline:3px solid var(--ac);outline-offset:2px}
+h1[tabindex="-1"]:focus{outline:none}
 input,select,textarea{font:inherit;width:100%;min-height:48px;padding:.5rem .7rem;border:1px solid var(--ln);border-radius:10px;background:var(--sf2);color:var(--tx)}
 input[type=checkbox]{width:24px;min-height:24px;height:24px;accent-color:var(--hd)}
 label{display:block;font-size:.95rem;color:var(--mu);margin:.7rem 0 .2rem}

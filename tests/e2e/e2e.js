@@ -130,6 +130,10 @@ async function page() {
   ok(await p.wait(() => /Harmonogram zmieniony/.test(p.toast()) && /wyłącz o 22:00/.test(p.text()) && p.$$("[data-sch]").length === 4), "zmiana godzin harmonogramu");
   const rf = p.$("form[data-f=rule][data-k=ch4]"); p.setv(rf, "threshold", "25"); p.submit(rf);
   ok(await p.wait(() => /Termostat zapisany/.test(p.toast()) && /włącz powyżej 25 °C/.test(p.$("[data-rule$='-ch4']").textContent)), "termostat wentylatora: włącz powyżej 25 °C");
+  const rf5 = p.$("form[data-f=rule][data-k=ch5]"); p.setv(rf5, "threshold", "4"); p.submit(rf5);
+  await p.wait(() => p.$("form[data-f=rule][data-k=ch5] [data-act=ruleoff]"));
+  p.click(p.$("form[data-f=rule][data-k=ch5] [data-act=ruleoff]"));
+  ok(await p.wait(() => /Automatyka wyłączona/.test(p.$("[data-rule$='-ch5']").textContent) && /Włącz automatykę/.test(p.$("form[data-f=rule][data-k=ch5]").textContent)), "automatykę ogrzewania można włączyć i wyłączyć");
   ok(await p.wait(() => /Światło: włączono/.test(p.$("[data-log]").textContent) && /ręcznie/.test(p.$("[data-log]").textContent) && /Drzwi: zamykanie/.test(p.$("[data-log]").textContent)), "dziennik zdarzeń: co, kiedy, skąd");
   p.click(p.$("[data-dev] summary[data-act=yaml]"));
   ok(await p.wait(() => /esphome:/.test(p.$("[data-yaml]").textContent) && /sn74hc595/.test(p.$("[data-yaml]").textContent)), "podgląd YAML ESPHome");

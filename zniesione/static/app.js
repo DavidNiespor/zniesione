@@ -397,16 +397,28 @@ function schedFill(f, s) {
   $('[data-act=schcancel]', f).hidden = !s;
   syncSched(f);
 }
+function ruleForm(d, c) {
+  const r = c.rule, on = !!(r && r.enabled), k = `${d.id}-${esc(c.key)}`, word = COOL.includes(c.kind) ? 'powyżej' : 'poniżej';
+  return `<p data-rule="${k}"><b>${on ? `Automatyka: włącz ${word} ${nf(r.threshold)} °C` : 'Automatyka wyłączona'}</b></p>
+    <p class="mu">${on ? 'Sterownik sam włącza i wyłącza urządzenie według temperatury.' : `Ustaw temperaturę, a urządzenie samo się włączy ${word} niej.`}</p>
+    <div class="row"><div><label for="th${k}">Włącz ${word} (°C)</label><input id="th${k}" name="threshold" type="number" step="0.5" min="-20" max="60"
+    value="${r ? r.threshold : COOL.includes(c.kind) ? 25 : 5}" required inputmode="decimal"></div>
+    <div class="seg"><button class="${on ? '' : 'pri'}">${on ? 'Zapisz próg' : 'Włącz automatykę'}</button>${on ? `<button type="button" data-act="ruleoff" data-id="${d.id}" data-k="${esc(c.key)}">Wyłącz automatykę</button>` : ''}</div></div>`;
+}
 function otherTile(d, c) {
-  const th = COOL.includes(c.kind) || HEAT.includes(c.kind), r = c.rule, k = `${d.id}-${esc(c.key)}`;
-  const word = COOL.includes(c.kind) ? 'powyżej' : 'poniżej';
-  const rtxt = r && r.enabled ? `Automatyka: włącz ${word} ${nf(r.threshold)} °C` : 'Automatyka wyłączona';
+  const th = COOL.includes(c.kind) || HEAT.includes(c.kind), k = `${d.id}-${esc(c.key)}`;
   return `<div class="tile"><span class="ti" aria-hidden="true">${kicon(c.kind)}</span><div class="tb"><label for="nm${k}" class="sr-only">Nazwa urządzenia</label>
     <input id="nm${k}" class="nm" value="${esc(c.name)}" data-id="${d.id}" data-k="${esc(c.key)}" maxlength="60"><span class="mu">${kname(c.kind)} · ${stTxt(d, c)}</span></div>${sw(d, c)}
-    ${th ? `<form class="auto" data-f="rule" data-id="${d.id}" data-k="${esc(c.key)}"><p class="mu" data-rule="${k}">${rtxt}</p>
-      <label class="chk"><input type="checkbox" name="enabled" ${!r || r.enabled ? 'checked' : ''}> Włączaj i wyłączaj samo według temperatury</label>
-      <div class="row"><div><label for="th${k}">Włącz ${word} (°C)</label><input id="th${k}" name="threshold" type="number" step="0.5" min="-20" max="60" value="${r ? r.threshold : COOL.includes(c.kind) ? 25 : 5}" required inputmode="decimal"></div>
-      <div><button>Zapisz automatykę</button></div></div></form>` : ''}</div>`;
+    ${th ? `<form class="auto" data-f="rule" data-id="${d.id}" data-k="${esc(c.key)}">${ruleForm(d, c)}</form>` : ''}</div>`;
+}
+async function saveRule(f, threshold, enabled) {
+  const {id, k} = f.dataset;
+  if (done(await api('PUT', `/api/my/devices/${id}/rules/${k}`, {threshold, enabled}), enabled ? 'Termostat zapisany' : 'Automatyka wyłączona')) {
+    const c = DEV[id].channels.find(x => x.key === k);
+    c.rule = {threshold, enabled};
+    f.innerHTML = ruleForm(DEV[id], c);
+    $('input', f).focus();
+  }
 }
 function logList(items) {
   if (!items.length) return '<li class="mu">Nic się jeszcze nie działo.</li>';
@@ -562,6 +574,7 @@ const ACT = {
   async delsch(b) { const {id, sid} = b.dataset; if (done(await api('DELETE', `/api/my/devices/${id}/schedules/${sid}`), 'Harmonogram usunięty')) await reloadSchedules(id) },
   schedit(b) { const f = $(`form[data-f=sched][data-id="${b.dataset.id}"]`); schedFill(f, SCH[b.dataset.id].find(s => s.id == b.dataset.sid)); f.scrollIntoView && f.scrollIntoView({block: 'center'}); f.elements.ch.focus() },
   schcancel: b => schedFill(b.closest('form'), null),
+  ruleoff: b => saveRule(b.closest('form'), +b.closest('form').elements.threshold.value, false),
   logmore(b) { reloadLog(+b.dataset.id, 100); b.hidden = true },
   async yaml(b) {
     const pre = $(`[data-yaml="${b.dataset.id}"]`); if (pre.dataset.loaded) return;
@@ -614,13 +627,7 @@ const FORMS = {
     const r = await api(sid ? 'PATCH' : 'POST', `/api/my/devices/${id}/schedules${sid ? '/' + sid : ''}`, b);
     if (done(r, sid ? 'Harmonogram zmieniony' : 'Harmonogram dodany')) { schedFill(f, null); await reloadSchedules(id) }
   },
-  async rule(f, v) {
-    const {id, k} = f.dataset, r = await api('PUT', `/api/my/devices/${id}/rules/${k}`, {threshold: +v.threshold, enabled: 'enabled' in v});
-    if (done(r, 'Termostat zapisany')) {
-      const c = DEV[id].channels.find(x => x.key === k); c.rule = {threshold: +v.threshold, enabled: 'enabled' in v};
-      $(`[data-rule="${id}-${k}"]`).textContent = c.rule.enabled ? `Automatyka: włącz ${COOL.includes(c.kind) ? 'powyżej' : 'poniżej'} ${nf(c.rule.threshold)} °C` : 'Automatyka wyłączona';
-    }
-  },
+  rule: (f, v) => saveRule(f, +v.threshold, true),
   async doorrun(f, v) { if (done(await api('PATCH', `/api/my/devices/${f.dataset.id}`, {door_run_s: Math.round(+v.door_run_s)}), 'Zapisano czas pracy silnika drzwi')) await refreshDevices() },
   async chan(f, v) { if (done(await api('PATCH', `/api/my/devices/${f.dataset.id}/channels/${f.dataset.k}`, v), 'Zapisano przekaźnik')) await refresh() },
   async adddev(f, v) { if (done(await api('POST', '/api/admin/devices', {model: v.model, farm_id: +v.farm_id, addr: v.addr}), 'Sterownik dodany')) await refresh() },
