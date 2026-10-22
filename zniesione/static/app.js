@@ -19,10 +19,11 @@ const STAGES = ['Zamówione', 'Konfiguracja gotowa', 'Wysłane', 'Połączone'];
 const MAIN = [['start', '🏠', 'Start'], ['jaja', '🥚', 'Jaja'], ['sterowanie', '🎛️', 'Sterowanie'], ['zamowienia', '📋', 'Zamówienia']];
 const MORE = [['klienci', '👥', 'Klienci', 'Kto kupuje i jak się skontaktować'], ['oferta', '🏷️', 'Oferta', 'Cena, opis i położenie gospodarstwa'],
   ['stado', '🐔', 'Stado', 'Kury i notatki o stadzie'], ['sterowniki', '🔌', 'Sterowniki', 'Zamów sterownik, sprawdź dostawę'],
-  ['raporty', '📊', 'Raporty', 'Sprzedaż w liczbach'], ['ustawienia', '⚙️', 'Ustawienia', 'Wygląd, konto, wylogowanie']];
+  ['raporty', '📊', 'Raporty', 'Sprzedaż i jaja w liczbach'], ['wiedza', '📚', 'Baza wiedzy', 'Porady i instrukcje krok po kroku'],
+  ['ustawienia', '⚙️', 'Ustawienia', 'Wygląd, konto, wylogowanie']];
 const THEMES = {auto: 'automatyczny', light: 'jasny', dark: 'czarny'};
 
-let me = null, current = '', seq = 0, liveN = 0, shopQ = '', hasSun = false;
+let me = null, current = '', seq = 0, liveN = 0, shopQ = '', hasSun = false, kbQ = '', kbCat = '';
 const DEV = {}, SCH = {}, CHART = {};
 
 // ---------- komunikacja ----------
@@ -66,7 +67,7 @@ function paintNav(name) {
     : `${tb}<button data-act="logout">Wyloguj</button>`;
   document.body.classList.toggle('nav-on', !!farmer);
   $('#side').hidden = $('#bottom').hidden = !farmer;
-  if (!farmer) return;
+  if (!farmer) { $('#side').innerHTML = $('#bottom').innerHTML = ''; return }
   const cur = k => k === name || (k === 'wiecej' && MORE.some(m => m[0] === name)) ? ' aria-current="page"' : '';
   const b = ([k, i, t]) => `<button data-act="go" data-v="${k}"${cur(k)}><span class="i" aria-hidden="true">${i}</span>${t}</button>`;
   $('#bottom').innerHTML = [...MAIN, ['wiecej', '☰', 'Więcej']].map(b).join('');
@@ -78,8 +79,9 @@ const VIEWS = {
   start: {fn: vStart, role: 'farmer', live: true}, jaja: {fn: vEggs, role: 'farmer'}, sterowanie: {fn: vControl, role: 'farmer', live: true},
   zamowienia: {fn: vOrders, role: 'farmer'}, wiecej: {fn: vMore, role: 'farmer'}, klienci: {fn: vClients, role: 'farmer'},
   oferta: {fn: vOffer, role: 'farmer'}, stado: {fn: vFlock, role: 'farmer'}, sterowniki: {fn: vDevices, role: 'farmer'},
-  raporty: {fn: vReports, role: 'farmer'}, ustawienia: {fn: vSettings, role: 'farmer'},
+  raporty: {fn: vReports, role: 'farmer'}, ustawienia: {fn: vSettings, role: 'farmer'}, wiedza: {fn: vKb, role: 'farmer'},
   admin: {fn: () => vAdmin('dev'), role: 'admin'}, 'admin-cfg': {fn: () => vAdmin('cfg'), role: 'admin'}, 'admin-tools': {fn: () => vAdmin('tools'), role: 'admin'},
+  'admin-kb': {fn: vAdminKb, role: 'admin'},
 };
 
 async function render(focus) {
@@ -228,15 +230,20 @@ async function vStart() {
 }
 
 // ---------- Jaja ----------
+const eggLog = es => es.slice(0, 10).map(e => `<li><span class="ti" aria-hidden="true">${e.kind === 'collect' ? '🥚' : '🧺'}</span><div class="tb">
+  <b>${e.kind === 'collect' ? 'Zbiór' : 'Sprzedaż na miejscu'}: ${e.packs} opak.</b><span class="mu">${today(e.at) ? 'dziś' : day(e.at)}, ${hm(e.at)}</span></div></li>`).join('')
+  || '<li class="mu">Brak wpisów z ostatnich 30 dni.</li>';
 async function vEggs(arg) {
-  const f = await load('/api/my/farm');
+  const [f, lg] = await Promise.all([load('/api/my/farm'), load('/api/my/eggs?days=30')]);
   const form = (dir, id, icon, h, txt, btn) => `<form class="card" data-f="eggs" data-dir="${dir}" id="f-${id}"><h2>${icon} ${h}</h2><p class="mu">${txt}</p>
     <label for="n-${id}">Liczba opakowań (po 10 jaj)</label><input id="n-${id}" name="n" type="number" min="1" max="500" value="1" required inputmode="numeric">
     <div class="actions"><button class="pri">${btn}</button></div></form>`;
   return {html: `<h1>Jaja</h1><div class="card"><span class="mu">Na stanie</span><b class="hero-num" data-stock>${f.stock}</b><span>opakowań po 10 szt.</span>
     <p class="mu">Cena: ${zl(f.price10)} za opakowanie · <a href="#/oferta">zmień w Ofercie</a></p></div><div class="grid">
     ${form(1, 'zbior', '🥚', 'Zbiór jaj', 'Ile pełnych opakowań dziś zebrano? Dodamy je do stanu w sklepie.', 'Dodaj do stanu')}
-    ${form(-1, 'sprzedaz', '🧺', 'Sprzedaż na miejscu', 'Sprzedane bez zamówienia w portalu, np. sąsiadom. Odejmiemy je ze stanu.', 'Odejmij ze stanu')}</div>`,
+    ${form(-1, 'sprzedaz', '🧺', 'Sprzedaż na miejscu', 'Sprzedane bez zamówienia w portalu, np. sąsiadom. Odejmiemy je ze stanu.', 'Odejmij ze stanu')}</div>
+    <section class="card" style="margin-top:1rem"><h2>Ostatnie wpisy</h2><p class="mu">Z 30 dni: zebrano ${lg.collected} opak., sprzedano na miejscu ${lg.sold} opak.</p>
+    <ul class="list" data-egglog>${eggLog(lg.entries)}</ul></section>`,
   after: () => { const i = arg && $(`#n-${arg}`); if (i) { i.focus(); i.select && i.select() } }};
 }
 
@@ -266,11 +273,13 @@ async function vClients() {
   return `<h1>Klienci</h1><section class="card"><ul class="list">${cs.map(c => `<li><span class="ti" aria-hidden="true">👤</span><div class="tb"><b>${esc(c.name)}${c.regular ? ' <span class="pill">stały klient</span>' : ''}</b>
     <span class="mu">${c.n} zamówień · odebrane ${c.qty} opak. · ostatnio ${day(c.last)}</span></div><a class="btn" href="tel:${esc(c.phone.replace(/\s/g, ''))}">📞 Zadzwoń</a></li>`).join('')}</ul></section>`;
 }
+const stat = (l, v, s) => `<div class="num"><span>${l}</span><b>${v}</b>${s ? `<span>${s}</span>` : ''}</div>`;
 async function vReports() {
-  const os = await load('/api/my/orders'), since = Date.now() - 30 * 864e5;
+  const [os, e7, e30] = await Promise.all([load('/api/my/orders'), load('/api/my/eggs?days=7'), load('/api/my/eggs?days=30')]), since = Date.now() - 30 * 864e5;
   const ok = os.filter(o => o.status === 'confirmed'), m = ok.filter(o => new Date(o.created) >= since);
-  const stat = (l, v, s) => `<div class="num"><span>${l}</span><b>${v}</b>${s ? `<span>${s}</span>` : ''}</div>`;
-  return `<h1>Raporty</h1><section class="card"><h2>Ostatnie 30 dni</h2><div class="stats">${stat('Sprzedane opakowania', m.reduce((s, o) => s + o.qty, 0))}
+  return `<h1>Raporty</h1><section class="card"><h2>🥚 Jaja</h2><div class="stats">${stat('Zebrane w 7 dni', e7.collected + ' opak.', `${nf(e7.collected * 10 / 7, 0)} jaj dziennie`)}
+    ${stat('Zebrane w 30 dni', e30.collected + ' opak.')}${stat('Sprzedane na miejscu (30 dni)', e30.sold + ' opak.')}</div></section>
+    <section class="card"><h2>Ostatnie 30 dni</h2><div class="stats">${stat('Sprzedane opakowania', m.reduce((s, o) => s + o.qty, 0))}
     ${stat('Przychód', zl(m.reduce((s, o) => s + o.total, 0)))}${stat('Potwierdzone zamówienia', m.length)}</div></section>
     <section class="card"><h2>Od początku</h2><div class="stats">${stat('Wszystkie zamówienia', os.length)}${stat('Czeka na potwierdzenie', os.filter(o => o.status === 'pending').length)}
     ${stat('Odrzucone', os.filter(o => o.status === 'rejected').length)}${stat('Przychód', zl(ok.reduce((s, o) => s + o.total, 0)))}</div></section>`;
@@ -293,9 +302,79 @@ async function vOffer() {
     <div class="actions"><button type="button" data-act="geo">📍 Użyj mojej lokalizacji</button></div></section>
     <div class="actions"><button class="pri">Zapisz ofertę</button></div></form>`;
 }
-function vFlock() {
-  return '<h1>Stado</h1>' + empty('🐔', 'Ewidencja stada wkrótce', 'Tu zapiszesz liczbę kur, daty wstawienia i notatki. Na razie możesz prowadzić zbiór jaj i sprzedaż.',
-    '<button class="pri" data-act="go" data-v="jaja/zbior">Zapisz zbiór jaj</button>');
+function flockForm(x) {
+  const p = x ? 'fl' + x.id : 'flnew', v = k => `value="${esc(x ? x[k] : '')}"`;
+  return `<form data-f="flock" data-id="${x ? x.id : ''}"><div class="row"><div><label for="${p}n">Nazwa stada</label><input id="${p}n" name="name" ${v('name')} required maxlength="60" placeholder="np. Stado główne"></div>
+    <div><label for="${p}b">Liczba kur</label><input id="${p}b" name="birds" type="number" min="0" max="100000" value="${x ? x.birds : ''}" required inputmode="numeric"></div></div>
+    <div class="row"><div><label for="${p}r">Rasa</label><input id="${p}r" name="breed" ${v('breed')} maxlength="60" placeholder="np. Zielononóżka"></div>
+    <div><label for="${p}s">Od kiedy</label><input id="${p}s" name="since" type="date" ${v('since')}></div></div>
+    <label for="${p}o">Notatki</label><textarea id="${p}o" name="notes" maxlength="1000" rows="2">${esc(x ? x.notes : '')}</textarea>
+    <div class="actions"><button class="pri">${x ? 'Zapisz zmiany' : 'Dodaj stado'}</button>${x ? `<button type="button" class="ghost danger" data-act="delflock" data-id="${x.id}">Usuń stado</button>` : ''}</div></form>`;
+}
+async function vFlock() {
+  const [fl, eg] = await Promise.all([load('/api/my/flocks'), load('/api/my/eggs?days=7')]);
+  const birds = fl.reduce((s, x) => s + x.birds, 0), perDay = eg.collected * 10 / 7;
+  const sum = `<section class="card"><div class="stats">${stat('Kury razem', birds)}${stat('Jaja dziennie', nf(perDay, 0), 'średnio z 7 dni')}
+    ${stat('Nieśność', birds ? nf(perDay / birds * 100, 0) + ' %' : '–', 'szacunkowo, ze zbiorów')}</div>
+    <p class="mu">Nieśność liczymy z zapisanych zbiorów (Jaja → Zbiór jaj), więc zapisuj je codziennie.</p></section>`;
+  return `<h1>Stado</h1>${fl.length ? sum : ''}${fl.map(x => `<section class="card" data-flock="${x.id}"><div class="dev-h"><div><h2>🐔 ${esc(x.name)}</h2>
+    <p class="mu">${x.birds} kur${x.breed ? ' · ' + esc(x.breed) : ''}${x.since ? ' · od ' + new Date(x.since).toLocaleDateString('pl-PL') : ''}</p></div></div>
+    ${x.notes ? `<p>${esc(x.notes)}</p>` : ''}<details><summary>Zmień dane stada</summary>${flockForm(x)}</details></section>`).join('')}
+    <section class="card"><h2>${fl.length ? 'Dodaj kolejne stado' : 'Dodaj pierwsze stado'}</h2>${fl.length ? '' : '<p class="mu">Zapisz, ile masz kur. Portal policzy nieśność ze zbiorów jaj.</p>'}${flockForm(null)}</section>`;
+}
+
+// ---------- baza wiedzy ----------
+function mdInline(s) {
+  return esc(s).replace(/!\[([^\]]*)\]\((https:\/\/[^\s)]+)\)/g, '<img src="$2" alt="$1" loading="lazy">')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/\[([^\]]+)\]\((#\/[\w\/-]*)\)/g, '<a href="$2">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*\s][^*]*)\*/g, '<em>$1</em>').replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+// Prosty Markdown: nagłówki, listy, cytaty, kod, pogrubienie, linki http(s) i obrazy https. Tekst jest najpierw escapowany.
+function md(src) {
+  const out = [], L = String(src || '').replace(/\r/g, '').split('\n'), LIST = /^\s*([-*]|\d+[.)])\s+/;
+  let i = 0;
+  while (i < L.length) {
+    const l = L[i], h = l.match(/^(#{1,3})\s+(.*)/);
+    if (!l.trim()) { i++; continue }
+    if (l.startsWith('```')) { const b = []; i++; while (i < L.length && !L[i].startsWith('```')) b.push(L[i++]); i++; out.push(`<pre>${esc(b.join('\n'))}</pre>`); continue }
+    if (h) { const n = h[1].length < 3 ? 2 : 3; out.push(`<h${n}>${mdInline(h[2])}</h${n}>`); i++; continue }
+    if (LIST.test(l)) {
+      const ol = /^\s*\d/.test(l), items = [];
+      while (i < L.length && LIST.test(L[i]) && /^\s*\d/.test(L[i]) === ol) {
+        let t = L[i++].replace(LIST, '');
+        while (i < L.length && /^\s{2,}\S/.test(L[i]) && !LIST.test(L[i])) t += ' ' + L[i++].trim();
+        items.push(`<li>${mdInline(t)}</li>`);
+      }
+      out.push(ol ? `<ol>${items.join('')}</ol>` : `<ul>${items.join('')}</ul>`); continue;
+    }
+    if (l.startsWith('>')) { const b = []; while (i < L.length && L[i].startsWith('>')) b.push(L[i++].replace(/^>\s?/, '')); out.push(`<blockquote>${mdInline(b.join(' '))}</blockquote>`); continue }
+    const p = [l]; i++;
+    while (i < L.length && L[i].trim() && !/^(#{1,3}\s|```|>)/.test(L[i]) && !LIST.test(L[i])) p.push(L[i++]);
+    out.push(`<p>${mdInline(p.join(' '))}</p>`);
+  }
+  return out.join('');
+}
+const kbCards = (list, base) => list.map(a => `<a class="card kbcard" href="#/${base}/${a.id}" data-kb="${a.id}">
+  <p class="mu">${a.category ? `<span class="pill">${esc(a.category)}</span> ` : ''}${a.published ? '' : '<span class="badge wa">Szkic</span> '}${day(a.updated)}</p>
+  <h2>${esc(a.title)}</h2><p class="mu">${esc(a.excerpt)}${a.excerpt.length >= 180 ? '…' : ''}</p></a>`).join('');
+async function kbSearch() {
+  const key = kbQ + '\u0000' + kbCat, r = await api('GET', `/api/kb?q=${encodeURIComponent(kbQ)}&category=${encodeURIComponent(kbCat)}`), box = $('#kblist');
+  if (r.ok && box && key === kbQ + '\u0000' + kbCat) box.innerHTML = kbCards(r.data, 'wiedza') || '<p class="mu">Nic nie znaleziono. Spróbuj innego słowa albo wybierz „Wszystkie”.</p>';
+}
+async function vKb(arg) {
+  if (arg) {
+    const a = await load('/api/kb/' + encodeURIComponent(arg));
+    return `<p><a class="btn ghost" href="#/wiedza">← Wszystkie porady</a></p><article class="card prose"><p class="mu">${a.category ? `<span class="pill">${esc(a.category)}</span> · ` : ''}
+      aktualizacja ${day(a.updated)}</p><h1>${esc(a.title)}</h1>${md(a.body)}</article>`;
+  }
+  const all = await load('/api/kb'), cats = [...new Set(all.map(a => a.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pl'));
+  if (!cats.includes(kbCat)) kbCat = '';
+  if (!all.length) return '<h1>Baza wiedzy</h1>' + empty('📚', 'Baza wiedzy jest jeszcze pusta', 'Wkrótce pojawią się tu porady i instrukcje od zespołu zniesione.pl.');
+  return {html: `<h1>Baza wiedzy</h1><p class="lead">Porady i instrukcje krok po kroku od zespołu zniesione.pl.</p>
+    <label for="kbq">Szukaj w poradach</label><input id="kbq" type="search" value="${esc(kbQ)}" placeholder="np. drzwi, światło zimą">
+    <div class="seg" role="group" aria-label="Kategorie" style="margin:.8rem 0">${['', ...cats].map(c => `<button data-act="kbcat" data-v="${esc(c)}" aria-pressed="${c === kbCat}">${c ? esc(c) : 'Wszystkie'}</button>`).join('')}</div>
+    <div id="kblist"></div>`, after: kbSearch};
 }
 function vSettings() {
   const t = theme();
@@ -449,7 +528,8 @@ function controlCard(d, log, rd) {
     <h3>Światło i drzwi</h3><p class="mu">Przekaźniki otwierania i zamykania drzwi nigdy nie działają jednocześnie. Silnik drzwi wyłącza się sam.</p>
     <div class="tiles">${lights.map(c => lightTile(d, c)).join('')}${hasDoor(d) ? doorTile(d) : ''}</div>
     ${hasDoor(d) ? `<form data-f="doorrun" data-id="${d.id}" class="row" style="max-width:28rem"><div><label for="dr${d.id}">Czas pracy silnika drzwi (sekundy)</label>
-      <input id="dr${d.id}" name="door_run_s" type="number" min="1" max="300" value="${d.door_run_s}" required inputmode="numeric"></div><div><button>Zapisz czas</button></div></form>` : ''}
+      <input id="dr${d.id}" name="door_run_s" type="number" min="1" max="300" value="${d.door_run_s}" required inputmode="numeric"></div><div><button>Zapisz czas</button></div></form>
+      <p class="mu">Ten sam czas jest zapisany w sterowniku jako zabezpieczenie na wypadek braku internetu. Po zmianie wgraj ponownie konfigurację ESPHome.</p>` : ''}
     ${others.length ? `<h3>Pozostałe urządzenia</h3><div class="tiles">${others.map(c => otherTile(d, c)).join('')}</div>` : ''}
     <h3>Harmonogramy</h3><div data-sl="${d.id}">${schedList(d)}</div>${schedForm(d)}
     <h3>Ostatnie zdarzenia</h3><ul class="list log" data-log="${d.id}">${logList(log)}</ul><button class="sm" data-act="logmore" data-id="${d.id}">Pokaż więcej zdarzeń</button>
@@ -523,10 +603,35 @@ function unhover(e) {
 }
 
 // ---------- administrator ----------
+const adminTabs = cur => `<div class="tabs" role="navigation" aria-label="Sekcje administratora">${[['admin', 'Sterowniki'], ['admin-kb', 'Baza wiedzy'],
+  ['admin-cfg', 'Konfiguracja'], ['admin-tools', 'Narzędzia']].map(([k, t]) => `<button data-act="go" data-v="${k}"${k === cur ? ' aria-current="page"' : ''}>${t}</button>`).join('')}</div>`;
+const MD_HELP = `<details><summary>Jak formatować tekst</summary><pre>## Nagłówek        ### Mniejszy nagłówek
+**pogrubienie**    *kursywa*    \`kod\`
+- punkt listy      1. lista numerowana
+> ramka z uwagą
+[tekst linku](https://adres.pl)     [link w portalu](#/sterowanie)
+![opis obrazka](https://adres.pl/obraz.jpg)</pre></details>`;
+async function vAdminKb(arg) {
+  let h = '<h1>Administrator</h1>' + adminTabs('admin-kb');
+  if (!arg) {
+    const all = await load('/api/kb');
+    return h + `<div class="actions" style="margin:0 0 1rem"><button class="pri" data-act="go" data-v="admin-kb/nowy">＋ Nowy artykuł</button></div>`
+      + (all.length ? kbCards(all, 'admin-kb') : empty('📚', 'Brak artykułów', 'Dodaj pierwszą poradę dla rolników.'));
+  }
+  const [a, all] = await Promise.all([arg === 'nowy' ? {title: '', category: '', body: '', published: false} : load('/api/kb/' + encodeURIComponent(arg)), load('/api/kb')]);
+  const cats = [...new Set(all.map(x => x.category).filter(Boolean))];
+  return h + `<p><a class="btn ghost" href="#/admin-kb">← Lista artykułów</a></p><form class="card" data-f="kb" data-id="${a.id || ''}">
+    <h2>${a.id ? 'Edycja artykułu' : 'Nowy artykuł'}</h2>
+    <label for="kb-t">Tytuł</label><input id="kb-t" name="title" value="${esc(a.title)}" required minlength="3" maxlength="150">
+    <label for="kb-c">Kategoria</label><input id="kb-c" name="category" value="${esc(a.category)}" maxlength="60" list="kb-cats" placeholder="np. Drzwi, Harmonogramy, Porady">
+    <datalist id="kb-cats">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+    <label for="kb-b">Treść</label><textarea id="kb-b" name="body" rows="16" required maxlength="50000">${esc(a.body)}</textarea>${MD_HELP}
+    <label class="chk"><input type="checkbox" name="published" ${a.published ? 'checked' : ''}> Opublikowany (widoczny dla rolników)</label>
+    <div class="actions"><button class="pri">Zapisz artykuł</button>${a.id ? `<button type="button" class="ghost danger" data-act="kbdel" data-id="${a.id}">Usuń artykuł</button>` : ''}</div></form>
+    <h2>Podgląd</h2><article class="card prose" data-kbpreview><h1>${esc(a.title) || 'Tytuł'}</h1>${md(a.body)}</article>`;
+}
 async function vAdmin(tab) {
-  const tabs = `<div class="tabs" role="navigation" aria-label="Sekcje administratora">${[['admin', 'Sterowniki'], ['admin-cfg', 'Konfiguracja'], ['admin-tools', 'Narzędzia']].map(([k, t]) =>
-    `<button data-act="go" data-v="${k}"${k === (tab === 'dev' ? 'admin' : 'admin-' + tab) ? ' aria-current="page"' : ''}>${t}</button>`).join('')}</div>`;
-  let h = '<h1>Administrator</h1>' + tabs;
+  let h = '<h1>Administrator</h1>' + adminTabs(tab === 'dev' ? 'admin' : 'admin-' + tab);
   if (tab === 'dev') {
     const [dv, fm, ct] = await Promise.all([load('/api/admin/devices'), load('/api/farms'), load('/api/catalog')]);
     const fo = fm.map(f => [f.id, f.name]), fname = id => (fm.find(f => f.id === id) || {}).name || 'bez farmy';
@@ -576,6 +681,9 @@ const ACT = {
   schcancel: b => schedFill(b.closest('form'), null),
   ruleoff: b => saveRule(b.closest('form'), +b.closest('form').elements.threshold.value, false),
   logmore(b) { reloadLog(+b.dataset.id, 100); b.hidden = true },
+  async delflock(b) { if (done(await api('DELETE', `/api/my/flocks/${b.dataset.id}`), 'Stado usunięte')) await refresh() },
+  kbcat(b) { kbCat = b.dataset.v; $$('[data-act=kbcat]').forEach(x => x.setAttribute('aria-pressed', x === b)); kbSearch() },
+  async kbdel(b) { if (done(await api('DELETE', `/api/admin/kb/${b.dataset.id}`), 'Artykuł usunięty')) go('admin-kb') },
   async yaml(b) {
     const pre = $(`[data-yaml="${b.dataset.id}"]`); if (pre.dataset.loaded) return;
     const r = await api('GET', `/api/my/devices/${b.dataset.id}/yaml`);
@@ -610,12 +718,21 @@ const FORMS = {
   },
   login: auth, register: auth,
   async eggs(f, v) {
-    const cur = (await load('/api/my/farm')).stock, n = Math.round(+v.n), dir = +f.dataset.dir, next = cur + dir * n;
+    const n = Math.round(+v.n), dir = +f.dataset.dir;
     if (!(n > 0)) return toast('Podaj liczbę opakowań większą od zera.', true);
-    if (next < 0) return toast(`Na stanie jest tylko ${cur} opak.`, true);
-    if (done(await api('PUT', '/api/my/farm', {stock: next}), dir > 0 ? `Dodano ${n} opak. Na stanie: ${next}` : `Odjęto ${n} opak. Na stanie: ${next}`)) {
-      $('[data-stock]').textContent = next; f.reset();
+    const r = await api('POST', '/api/my/eggs', {kind: dir > 0 ? 'collect' : 'sale', packs: n});
+    if (done(r, `${dir > 0 ? 'Dodano' : 'Odjęto'} ${n} opak. Na stanie: ${r.data && r.data.stock}`)) {
+      $('[data-stock]').textContent = r.data.stock; f.reset();
+      const lg = await api('GET', '/api/my/eggs?days=30'); if (lg.ok && $('[data-egglog]')) $('[data-egglog]').innerHTML = eggLog(lg.data.entries);
     }
+  },
+  async flock(f, v) {
+    const id = f.dataset.id, b = {...v, birds: Math.round(+v.birds)};
+    if (done(await api(id ? 'PATCH' : 'POST', `/api/my/flocks${id ? '/' + id : ''}`, b), id ? 'Zapisano stado' : 'Dodano stado')) await refresh();
+  },
+  async kb(f, v) {
+    const id = f.dataset.id, r = await api(id ? 'PUT' : 'POST', `/api/admin/kb${id ? '/' + id : ''}`, {...v, published: 'published' in v});
+    if (done(r, r.data && r.data.published ? 'Artykuł zapisany i opublikowany' : 'Artykuł zapisany jako szkic') && !id) go('admin-kb/' + r.data.id);
   },
   async offer(f, v) {
     const b = {...v, price10: +v.price10, stock: +v.stock, lat: num(v.lat), lon: num(v.lon)};
@@ -652,7 +769,13 @@ document.addEventListener('submit', async e => {
   try { await h(f, Object.fromEntries(new FormData(f))) } finally { if (btn && btn.isConnected) btn.disabled = false }
 });
 document.addEventListener('input', async e => {
-  if (e.target.id !== 'q') return;
+  const t = e.target;
+  if (t.id === 'kbq') { kbQ = t.value; clearTimeout(t._d); t._d = setTimeout(kbSearch, 250); return }
+  if (t.form && t.form.dataset.f === 'kb' && (t.name === 'body' || t.name === 'title')) {
+    const pv = $('[data-kbpreview]'); if (pv) pv.innerHTML = `<h1>${esc(t.form.elements.title.value) || 'Tytuł'}</h1>${md(t.form.elements.body.value)}`;
+    return;
+  }
+  if (t.id !== 'q') return;
   shopQ = e.target.value; const q = shopQ, r = await api('GET', '/api/farms?q=' + encodeURIComponent(q));
   if (r.ok && q === shopQ && $('#farms')) $('#farms').innerHTML = farmCards(r.data);
 });

@@ -76,11 +76,27 @@ async function page() {
   ok(await p.wait(() => /Dodano 5 opak. Na stanie: 14/.test(p.toast()) && p.$("[data-stock]").textContent === "14"), "zbiór jaj dodaje opakowania do stanu");
   p.setv(p.$("#f-sprzedaz"), "n", "99"); p.submit(p.$("#f-sprzedaz"));
   ok(await p.wait(() => /Na stanie jest tylko 14/.test(p.toast())), "sprzedaż ponad stan jest odrzucona");
+  ok(await p.wait(() => /Zbiór: 5 opak\./.test(p.$("[data-egglog]").textContent)), "dziennik jaj pokazuje nowy zbiór");
   await p.nav("wiecej");
-  ok(await p.wait(() => p.$$(".mtile").length === 6) && ["Klienci", "Oferta", "Stado", "Sterowniki", "Raporty", "Ustawienia"].every((t) => p.btn(t)), "Więcej: 6 dużych kafelków");
+  const MORE = ["Klienci", "Oferta", "Stado", "Sterowniki", "Raporty", "Baza wiedzy", "Ustawienia"];
+  ok(await p.wait(() => p.$$(".mtile").length === 7) && MORE.every((t) => p.btn(t)), "Więcej: 7 dużych kafelków (z Bazą wiedzy)");
   await p.nav("klienci");
   ok(await p.wait(() => /Anna Nowak/.test(p.text()) && p.$("a[href^='tel:']")), "Klienci: lista z numerem do zadzwonienia");
-  await p.nav("wiecej"); await p.wait(() => p.$$(".mtile").length === 6);
+  await p.nav("stado");
+  ok(await p.wait(() => /Stado główne/.test(p.text()) && /48 kur/.test(p.text())), "Stado: stado z danych demo");
+  const nf = p.$("form[data-f=flock][data-id='']"); p.setv(nf, "name", "Młode"); p.setv(nf, "birds", "20"); p.submit(nf);
+  ok(await p.wait(() => /Dodano stado/.test(p.toast()) && p.$$("[data-flock]").length === 2 && /Kury razem\s*68/.test(p.text())), "Stado: dodanie stada, suma kur 68");
+  ok(/Nieśność/.test(p.text()) && /\d+ %/.test(p.$(".stats").textContent), "Stado: szacunkowa nieśność ze zbiorów");
+  await p.nav("wiedza");
+  ok(await p.wait(() => p.$$("[data-kb]").length === 3 && !/szkic/i.test(p.$("#kblist").textContent)), "Baza wiedzy: 3 opublikowane artykuły, bez szkiców");
+  const kq = p.$("#kbq"); kq.value = "silnika"; kq.dispatchEvent(new p.w.Event("input", { bubbles: true }));
+  ok(await p.wait(() => p.$$("[data-kb]").length === 1 && /Drzwi kurnika/.test(p.$("#kblist").textContent)), "Baza wiedzy: wyszukiwanie");
+  p.click(p.$("[data-act=kbcat][data-v='']")); kq.value = ""; kq.dispatchEvent(new p.w.Event("input", { bubbles: true }));
+  await p.wait(() => p.$$("[data-kb]").length === 3);
+  p.click(p.$$("[data-kb]").find((a) => /Pierwsze uruchomienie/.test(a.textContent)));
+  ok(await p.wait(() => p.$("article.prose h1") && /Pierwsze uruchomienie/.test(p.$("article.prose h1").textContent)
+    && p.$("article.prose ol li") && p.$("article.prose strong") && p.$("article.prose blockquote")), "Baza wiedzy: artykuł z formatowaniem (lista, pogrubienie, ramka)");
+  await p.nav("wiecej"); await p.wait(() => p.$$(".mtile").length === 7);
   p.click(p.$(".mtile[data-v=oferta]"));
   await p.wait(() => p.$("form[data-f=offer]"));
   const off = p.$("form[data-f=offer]"); p.setv(off, "price10", "15"); p.setv(off, "stock", "20"); p.submit(off);
@@ -188,6 +204,23 @@ async function page() {
   await p.clickBtn("Konfiguracja"); await p.wait(() => p.$("form[data-f=cfg]"));
   const cf = p.$("form[data-f=cfg]"); p.setv(cf, "net", "bad"); p.submit(cf);
   ok(await p.wait(() => /Niepoprawne pole net/.test(p.toast())), "walidacja konfiguracji");
+
+  // ---- admin: baza wiedzy ----
+  await p.clickBtn("Baza wiedzy");
+  ok(await p.wait(() => p.$$("[data-kb]").length === 4 && /Szkic/.test(p.text())), "admin widzi wszystkie artykuły, także szkic");
+  await p.clickBtn("Nowy artykuł"); await p.wait(() => p.$("form[data-f=kb]"));
+  const kf = p.$("form[data-f=kb]"), body = kf.querySelector("[name=body]");
+  p.setv(kf, "title", "Pojenie zimą"); p.setv(kf, "category", "Porady");
+  body.value = "## Grzałka\nUstaw **2 °C**.\n<img src=x onerror=alert(1)>\n- punkt"; body.dispatchEvent(new p.w.Event("input", { bubbles: true }));
+  const pv = p.$("[data-kbpreview]");
+  ok(pv.querySelector("h2") && pv.querySelector("strong") && !pv.querySelector("img") && /<img src=x/.test(pv.textContent), "podgląd na żywo, HTML z treści nie jest wykonywany");
+  kf.querySelector("[name=published]").checked = true; p.submit(kf);
+  ok(await p.wait(() => /opublikowany/.test(p.toast()) && p.$("form[data-f=kb]") && p.$("form[data-f=kb]").dataset.id), "admin publikuje artykuł");
+  const fr = await page();
+  await fr.cfetch("/api/auth/login", { method: "POST", headers: { "X-Requested-With": "zniesione", "Content-Type": "application/json" }, body: JSON.stringify({ email: "rolnik@zniesione.test", password: "Rolnik12345!" }) });
+  ok((await (await fr.cfetch("/api/kb?q=pojenie")).json()).some((a) => a.title === "Pojenie zimą"), "rolnik widzi nowy artykuł");
+  p.click(p.$("[data-act=kbdel]"));
+  ok(await p.wait(() => /Artykuł usunięty/.test(p.toast()) && p.$$("[data-kb]").length === 4), "admin usuwa artykuł");
   console.log(fails ? `\n${fails} NIEPOWODZEŃ na ${n}` : `\nWSZYSTKO OK (${n} kroków)`);
   process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });
