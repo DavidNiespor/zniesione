@@ -1,4 +1,5 @@
 """Logika bez zależności od Flaska: harmonogramy, termostat, YAML, adresy IP, silnik sterowania."""
+import json
 import math
 import os
 import re
@@ -140,6 +141,21 @@ def alloc_ip(db):
     raise RuntimeError("Brak wolnych adresów w podsieci")
 
 
+def q(v):
+    return json.dumps(str(v), ensure_ascii=False)  # napis JSON jest poprawnym napisem YAML
+
+
+def _failsafe(c, chans, dev):
+    """Zabezpieczenia w samym sterowniku, działają także bez połączenia z portalem: po restarcie przekaźnik wyłączony,
+    przekaźniki drzwi z blokadą wzajemną i wyłączaniem po czasie pracy silnika (door_run_s z portalu)."""
+    out = "    restore_mode: ALWAYS_OFF\n"
+    if c.get("kind") in cat.DOORS:
+        doors = [x["key"] for x in chans if x.get("kind") in cat.DOORS]
+        out += (f"    interlock: [{', '.join(doors)}]\n    interlock_wait_time: 500ms\n"
+                f"    on_turn_on:\n      - delay: {dev['door_run_s']}s\n      - switch.turn_off: {c['key']}\n")
+    return out
+
+
 def esphome_yaml(dev, chans, db):
     m = cat.MODELS[dev["model"]]
     ep, port, net = cfg(db, "wg_endpoint"), cfg(db, "wg_port"), cfg(db, "net")
@@ -157,14 +173,14 @@ def esphome_yaml(dev, chans, db):
     link = ("ethernet:\n  type: W5500\n  # clk_pin, mosi_pin, miso_pin, cs_pin, interrupt_pin, reset_pin: wg dokumentacji Waveshare\n\n"
             if m.get("eth") else "wifi:\n  ssid: !secret wifi_ssid\n  password: !secret wifi_password\n\n")
     if "relays" in m:
-        sw = "switch:\n" + "".join(f"  - platform: gpio\n    id: {c['key']}\n    pin: GPIO{p}\n    name: {c['name']}\n"
-                                    for c, p in zip(chans, m["relays"]))
+        sw = "switch:\n" + "".join(f"  - platform: gpio\n    id: {c['key']}\n    pin: GPIO{p}\n    name: {q(c['name'])}\n"
+                                    + _failsafe(c, chans, dev) for c, p in zip(chans, m["relays"]))
     elif "sr" in m:
         s = m["sr"]
         sw = (f"sn74hc595:\n  - id: sr_hub\n    data_pin: {s['data']}\n    clock_pin: {s['clock']}\n"
               f"    latch_pin: {s['latch']}\n    sr_count: 1\n\nswitch:\n" +
-              "".join(f"  - platform: gpio\n    id: {c['key']}\n    name: {c['name']}\n    pin:\n"
-                      f"      sn74hc595: sr_hub\n      number: {i}\n" for i, c in enumerate(chans)))
+              "".join(f"  - platform: gpio\n    id: {c['key']}\n    name: {q(c['name'])}\n    pin:\n"
+                      f"      sn74hc595: sr_hub\n      number: {i}\n" + _failsafe(c, chans, dev) for i, c in enumerate(chans)))
     else:
         sw = "# Przekaźniki i wejścia: piny wg dokumentacji Waveshare\n"
     return (f"esphome:\n  name: {dev['code']}\n  friendly_name: Kurnik {dev['code']}\n\nesp32:\n  board: {m['board']}\n\n"

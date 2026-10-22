@@ -318,3 +318,29 @@ def test_proxy_count_reads_forwarded_for(tmp_path):
         c.post("/api/auth/login", {"email": "x@x.pl", "password": "zle"}, headers={"X-Forwarded-For": "203.0.113.9"})
     assert c.post("/api/auth/login", {"email": "z@x.pl", "password": "zle"}, headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 429
     assert c.post("/api/auth/login", {"email": "z@x.pl", "password": "zle"}, headers={"X-Forwarded-For": "203.0.113.10"}).status_code == 401
+
+
+def esphome_doc(text):
+    import yaml
+
+    class L(yaml.SafeLoader):
+        pass
+    L.add_constructor("!secret", lambda loader, node: "secret:" + node.value)
+    return yaml.load(text, Loader=L)
+
+
+def test_esphome_yaml_is_valid_and_has_door_failsafe(app, admin, farmer):
+    c, _ = farmer
+    for model in ("tr4", "trs3"):
+        did = c.post("/api/my/device-orders", {"model": model}).get_json()["id"]
+        admin.patch(f"/api/admin/devices/{did}", {"stage": 1})
+        c.patch(f"/api/my/devices/{did}", {"door_run_s": 35})
+        c.patch(f"/api/my/devices/{did}/channels/ch1", {"name": 'Światło: "hala" #1'})
+        doc = esphome_doc(c.get(f"/api/my/devices/{did}/yaml").get_data(as_text=True))
+        sw = {s["id"]: s for s in doc["switch"]}
+        assert sw["ch1"]["name"] == 'Światło: "hala" #1' and sw["ch2"]["name"] == "Drzwi: otwórz"
+        assert all(s["restore_mode"] == "ALWAYS_OFF" for s in sw.values())
+        for k in ("ch2", "ch3"):
+            assert sw[k]["interlock"] == ["ch2", "ch3"]
+            assert sw[k]["on_turn_on"] == [{"delay": "35s"}, {"switch.turn_off": k}]
+        assert "interlock" not in sw["ch1"] and doc["api"]["encryption"]["key"] == "secret:api_key"
