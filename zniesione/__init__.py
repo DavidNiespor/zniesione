@@ -21,6 +21,45 @@ from . import services as sv
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 MODES, PICKUPS, DAYS = ("once", "weekly", "biweekly"), ("pickup", "delivery"), ("a", "w", "e")
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+KB_DEMO = [
+    ("Pierwsze uruchomienie sterownika", "Sterowniki", """Sterownik przychodzi przygotowany do pracy. Wystarczy go podłączyć.
+
+## Krok po kroku
+1. Podłącz zasilanie sterownika (zasilacz z zestawu).
+2. Połącz sterownik z internetem: Wi-Fi w kurniku albo kabel sieciowy (Waveshare).
+3. Odczekaj 2–3 minuty. W portalu przy sterowniku pojawi się **Połączony**.
+4. Wejdź w **Sterowanie** i sprawdź, czy przełącznik światła włącza lampę.
+
+## Co jest do czego podłączone
+W **Sterowanie → Przypisanie przekaźników** ustawisz, co jest podłączone do każdego przekaźnika:
+światło, drzwi, wentylator, grzałka, pompa i inne.
+
+> Jeśli po 10 minutach nadal widzisz *Brak połączenia*, sprawdź zasilanie i zasięg Wi-Fi w kurniku."""),
+    ("Światło od wschodu słońca", "Harmonogramy", """Kury znoszą więcej jaj, gdy dzień trwa około 14–16 godzin.
+Zimą możesz wydłużyć poranek lampą.
+
+## Przykład: światło od wschodu −30 min do 07:00
+1. Wejdź w **Sterowanie → Harmonogramy**.
+2. Czym sterować: **Światło**.
+3. Kiedy włączyć: **Względem wschodu słońca**, przesunięcie **-30**.
+4. Kiedy wyłączyć: **O godzinie**, **07:00**.
+5. Kliknij **Dodaj harmonogram**.
+
+Godzina wschodu zmienia się każdego dnia, portal liczy ją sam. Potrzebuje tylko położenia gospodarstwa
+(**Więcej → Oferta → Położenie gospodarstwa**).
+
+Gdy wschód słońca wypada później niż godzina wyłączenia, światło tego dnia się nie włącza."""),
+    ("Drzwi kurnika: czas pracy silnika", "Drzwi", """Drzwi otwiera i zamyka silnik. Sterownik włącza go na ustalony czas, potem sam wyłącza.
+
+- Zmierz stoperem, ile trwa pełne otwarcie drzwi, i dodaj 2–3 sekundy.
+- Wpisz ten czas w **Sterowanie → Czas pracy silnika drzwi**.
+- Po zmianie czasu wgraj ponownie **Konfigurację ESPHome**: ten sam czas jest zapisany w sterowniku jako zabezpieczenie,
+  gdy kurnik straci internet.
+
+Przekaźniki otwierania i zamykania nigdy nie działają jednocześnie."""),
+    ("Zimowe pojenie (szkic)", "Porady", "Artykuł w przygotowaniu: grzałka wody i termostat poniżej 2 °C.", 0),
+]
+KB_DEMO = [a if len(a) == 4 else (*a, 1) for a in KB_DEMO]
 
 
 def err(msg, code=400):
@@ -33,6 +72,13 @@ def num(v):
 
 def integer(v, lo, hi):
     return isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
+
+
+def valid_date(s):
+    try:
+        return bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", s)) and datetime.strptime(s, "%Y-%m-%d") is not None
+    except ValueError:
+        return False
 
 
 class Session(SecureCookieSessionInterface):
@@ -523,6 +569,140 @@ def create_app(test_config=None):
         commit()
         return jsonify(ok=True)
 
+    # ---------- stado i jaja ----------
+    FLOCK = dict(name="", birds=0, breed="", since="", notes="")
+
+    def flock_save(b, old):
+        f = {**FLOCK, **({k: old[k] for k in FLOCK} if old else {}), **{k: b[k] for k in FLOCK if k in b}}
+        if not isinstance(f["name"], str) or not f["name"].strip() or len(f["name"]) > 60:
+            return err("Podaj nazwę stada (do 60 znaków)")
+        if not integer(f["birds"], 0, 100000):
+            return err("Liczba kur od 0 do 100 000")
+        for k, n in (("breed", 60), ("notes", 1000)):
+            if not isinstance(f[k], str) or len(f[k]) > n:
+                return err(f"Pole {k} może mieć do {n} znaków")
+        if not isinstance(f["since"], str) or (f["since"] and not valid_date(f["since"])):
+            return err("Data w formacie RRRR-MM-DD")
+        vals = [f["name"].strip(), f["birds"], f["breed"].strip(), f["since"], f["notes"].strip()]
+        if old:
+            q("UPDATE flocks SET name=?,birds=?,breed=?,since=?,notes=? WHERE id=?", *vals, old["id"])
+            fid = old["id"]
+        else:
+            fid = q("INSERT INTO flocks(farm_id,name,birds,breed,since,notes) VALUES(?,?,?,?,?,?)", g.user["farm_id"], *vals).lastrowid
+        commit()
+        return jsonify(dict(q("SELECT * FROM flocks WHERE id=?", fid).fetchone())), 200 if old else 201
+
+    @app.route("/api/my/flocks", methods=["GET", "POST"])
+    @need("farmer")
+    def flocks():
+        if request.method == "POST":
+            return flock_save(body(), None)
+        return jsonify([dict(r) for r in q("SELECT * FROM flocks WHERE farm_id=? ORDER BY id", g.user["farm_id"])])
+
+    @app.route("/api/my/flocks/<int:fid>", methods=["PATCH", "DELETE"])
+    @need("farmer")
+    def flock(fid):
+        old = q("SELECT * FROM flocks WHERE id=? AND farm_id=?", fid, g.user["farm_id"]).fetchone()
+        if not old:
+            return err("Nie znaleziono", 404)
+        if request.method == "PATCH":
+            return flock_save(body(), old)
+        q("DELETE FROM flocks WHERE id=?", fid)
+        commit()
+        return jsonify(ok=True)
+
+    @app.route("/api/my/eggs", methods=["GET", "POST"])
+    @need("farmer")
+    def eggs():
+        fid = g.user["farm_id"]
+        if request.method == "GET":
+            days = request.args.get("days", "30")
+            if not days.isdigit() or not 1 <= int(days) <= 365:
+                return err("Parametr days od 1 do 365")
+            rows = q("SELECT id,kind,packs,at FROM eggs WHERE farm_id=? AND at>=? ORDER BY id DESC", fid,
+                     (datetime.now() - timedelta(days=int(days))).isoformat()).fetchall()
+            return jsonify(days=int(days), collected=sum(r["packs"] for r in rows if r["kind"] == "collect"),
+                           sold=sum(r["packs"] for r in rows if r["kind"] == "sale"), entries=[dict(r) for r in rows[:200]])
+        b = body()
+        if b.get("kind") not in ("collect", "sale"):
+            return err("Rodzaj wpisu: collect (zbiór) lub sale (sprzedaż)")
+        if not integer(b.get("packs"), 1, 500):
+            return err("Liczba opakowań od 1 do 500")
+        if b["kind"] == "sale":  # jedno zapytanie: stan nie spadnie poniżej zera nawet przy dwóch kliknięciach naraz
+            if not q("UPDATE farms SET stock=stock-? WHERE id=? AND stock>=?", b["packs"], fid, b["packs"]).rowcount:
+                return err(f"Na stanie jest tylko {q('SELECT stock FROM farms WHERE id=?', fid).fetchone()['stock']} opak.", 409)
+        else:
+            q("UPDATE farms SET stock=stock+? WHERE id=?", b["packs"], fid)
+        eid = q("INSERT INTO eggs(farm_id,kind,packs,at) VALUES(?,?,?,?)", fid, b["kind"], b["packs"], datetime.now().isoformat()).lastrowid
+        commit()
+        return jsonify(id=eid, stock=q("SELECT stock FROM farms WHERE id=?", fid).fetchone()["stock"]), 201
+
+    # ---------- baza wiedzy ----------
+    def kb_json(r, full=True):
+        out = dict(id=r["id"], title=r["title"], category=r["category"], published=bool(r["published"]),
+                   created=r["created"], updated=r["updated"])
+        if full:
+            out["body"] = r["body"]
+        else:
+            out["excerpt"] = " ".join(re.sub(r"[#*`>\[\]!_|-]+|\(https?://\S+?\)", " ", r["body"]).split())[:180]
+        return out
+
+    def kb_visible(r):
+        return r and (r["published"] or g.user["role"] == "admin")
+
+    @app.get("/api/kb")
+    @need()
+    def kb_list():
+        s, c = request.args.get("q", "").strip().casefold(), request.args.get("category", "")
+        rows = [r for r in q("SELECT * FROM kb ORDER BY updated DESC") if kb_visible(r) and (not c or r["category"] == c)
+                and (not s or s in f"{r['title']} {r['category']} {r['body']}".casefold())]
+        return jsonify([kb_json(r, False) for r in rows])
+
+    @app.get("/api/kb/<int:aid>")
+    @need()
+    def kb_get(aid):
+        r = q("SELECT * FROM kb WHERE id=?", aid).fetchone()
+        return jsonify(kb_json(r)) if kb_visible(r) else err("Nie znaleziono", 404)
+
+    def kb_save(b, old):
+        a = {**({k: old[k] for k in ("title", "category", "body")} if old else {"title": "", "category": "", "body": ""}),
+             "published": bool(old["published"]) if old else False,
+             **{k: b[k] for k in ("title", "category", "body", "published") if k in b}}
+        if not isinstance(a["title"], str) or not 3 <= len(a["title"].strip()) <= 150:
+            return err("Tytuł od 3 do 150 znaków")
+        if not isinstance(a["category"], str) or len(a["category"].strip()) > 60:
+            return err("Kategoria do 60 znaków")
+        if not isinstance(a["body"], str) or not a["body"].strip() or len(a["body"]) > 50000:
+            return err("Treść artykułu jest wymagana (do 50 000 znaków)")
+        if not isinstance(a["published"], bool):
+            return err("Pole published musi być true lub false")
+        now = datetime.now().isoformat(timespec="seconds")
+        vals = [a["title"].strip(), a["category"].strip(), a["body"], int(a["published"]), now]
+        if old:
+            q("UPDATE kb SET title=?,category=?,body=?,published=?,updated=? WHERE id=?", *vals, old["id"])
+            aid = old["id"]
+        else:
+            aid = q("INSERT INTO kb(title,category,body,published,updated,created) VALUES(?,?,?,?,?,?)", *vals, now).lastrowid
+        commit()
+        return jsonify(kb_json(q("SELECT * FROM kb WHERE id=?", aid).fetchone())), 200 if old else 201
+
+    @app.post("/api/admin/kb")
+    @need("admin")
+    def kb_add():
+        return kb_save(body(), None)
+
+    @app.route("/api/admin/kb/<int:aid>", methods=["PUT", "DELETE"])
+    @need("admin")
+    def kb_edit(aid):
+        old = q("SELECT * FROM kb WHERE id=?", aid).fetchone()
+        if not old:
+            return err("Nie znaleziono", 404)
+        if request.method == "PUT":
+            return kb_save(body(), old)
+        q("DELETE FROM kb WHERE id=?", aid)
+        commit()
+        return jsonify(ok=True)
+
     # ---------- urządzenie ----------
     @app.post("/api/device/readings")
     def device_readings():
@@ -629,6 +809,14 @@ def create_app(test_config=None):
         q("INSERT INTO readings(device_id,t,h,at) VALUES(?,?,?,?)", did, 21.5, 58, datetime.now().isoformat())
         for k, n, kind in (("ch4", "Wentylator", "vent"), ("ch5", "Ogrzewanie", "heater"), ("ch6", "Grzałka wody", "water_heater")):
             q("UPDATE channels SET name=?,kind=? WHERE device_id=? AND key=?", n, kind, did, k)
+        q("INSERT INTO flocks(farm_id,name,birds,breed,since,notes) VALUES(1,?,?,?,?,?)", "Stado główne", 48,
+          "Zielononóżka kuropatwiana", "2026-03-15", "Wybieg za stodołą, zamykane na noc.")
+        for i, packs in enumerate((3, 4, 3, 4, 4, 3, 3)):  # zbiory z ostatniego tygodnia (stan farmy bez zmian)
+            q("INSERT INTO eggs(farm_id,kind,packs,at) VALUES(1,'collect',?,?)", packs,
+              (datetime.now() - timedelta(days=7 - i, hours=-2)).isoformat())
+        now = datetime.now().isoformat(timespec="seconds")
+        for title, cat_, text, pub in KB_DEMO:
+            q("INSERT INTO kb(title,category,body,published,created,updated) VALUES(?,?,?,?,?,?)", title, cat_, text, pub, now, now)
         commit()
         click.echo("Gotowe: admin@zniesione.test / Admin12345!  rolnik@zniesione.test / Rolnik12345!")
 
