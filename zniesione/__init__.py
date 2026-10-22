@@ -1,7 +1,9 @@
+import hashlib
 import math
 import os
 import re
 import secrets
+import sys
 import threading
 import time
 from datetime import datetime, timedelta
@@ -9,6 +11,7 @@ from functools import wraps
 
 from flask import Flask, g, jsonify, request, send_from_directory, session
 from flask.sessions import SecureCookieSessionInterface
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import catalog as cat
@@ -48,8 +51,13 @@ def create_app(test_config=None):
                       SESSION_COOKIE_SECURE=not (test_config or {}).get("TESTING"),
                       LOGIN_MAX_EMAIL=5, LOGIN_MAX_IP=20, LOGIN_WINDOW_S=600,
                       TICK_S=float(os.environ.get("TICK_S", "2")),
+                      PROXY_COUNT=int(os.environ.get("PROXY_COUNT") or 0),
+                      REAL_IP_HEADER=os.environ.get("REAL_IP_HEADER", ""),
                       SEND=sv.send_http, RUN_SCHEDULER=os.environ.get("RUN_SCHEDULER") == "1")
     app.config.update(test_config or {})
+    if app.config["PROXY_COUNT"]:  # za odwrotnym proxy lub Cloudflare Tunnel: adres klienta z X-Forwarded-For
+        n = app.config["PROXY_COUNT"]
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=n, x_proto=n)
     dbm.init_app(app)
     fails, fails_lock = {}, threading.Lock()  # nieudane logowania: klucz -> czasy prób (pamięć procesu)
 
@@ -62,6 +70,11 @@ def create_app(test_config=None):
     def body():
         b = request.get_json(silent=True)
         return b if isinstance(b, dict) else {}
+
+    def client_ip():
+        # REAL_IP_HEADER (np. CF-Connecting-IP) tylko wtedy, gdy aplikacja jest osiągalna wyłącznie przez Cloudflare
+        h = app.config["REAL_IP_HEADER"]
+        return (request.headers.get(h) if h else None) or request.remote_addr
 
     def login_blocked(keys, failed=False):
         now, win = time.monotonic(), app.config["LOGIN_WINDOW_S"]
@@ -122,9 +135,15 @@ def create_app(test_config=None):
     def healthz():
         return jsonify(ok=True)
 
+    static = os.path.join(app.root_path, "static")
+    with open(os.path.join(static, "app.html"), encoding="utf-8") as f:
+        page = f.read()
+    ver = hashlib.sha256(b"".join(open(os.path.join(static, n), "rb").read() for n in ("app.js", "app.css"))).hexdigest()[:10]
+    page = page.replace("?v=2", "?v=" + ver)  # nowa wersja plików = nowy adres, więc cache Cloudflare nie poda starych
+
     @app.get("/")
     def index():
-        return send_from_directory(os.path.join(app.root_path, "static"), "app.html")
+        return page, 200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache"}
 
     @app.get("/prototype")
     def prototype():
@@ -200,7 +219,7 @@ def create_app(test_config=None):
     def login():
         b = body()
         email = str(b.get("email", "")).strip().lower()
-        keys = [(("email", email), app.config["LOGIN_MAX_EMAIL"]), (("ip", request.remote_addr), app.config["LOGIN_MAX_IP"])]
+        keys = [(("email", email), app.config["LOGIN_MAX_EMAIL"]), (("ip", client_ip()), app.config["LOGIN_MAX_IP"])]
         if login_blocked(keys):
             return err("Za dużo nieudanych prób logowania. Spróbuj ponownie za 10 minut.", 429)
         u = q("SELECT * FROM users WHERE email=?", email).fetchone()
@@ -613,7 +632,8 @@ def create_app(test_config=None):
         commit()
         click.echo("Gotowe: admin@zniesione.test / Admin12345!  rolnik@zniesione.test / Rolnik12345!")
 
-    if app.config["RUN_SCHEDULER"]:
+    # polecenia konsolowe (np. create-admin w działającym kontenerze) nie uruchamiają drugiego silnika obok serwera
+    if app.config["RUN_SCHEDULER"] and not set(sys.argv) & {"create-admin", "seed-demo", "shell", "routes"}:
         def loop():
             ev = threading.Event()
             while not ev.wait(app.config["TICK_S"]):  # krótki obieg: impulsy drzwi trwają sekundy

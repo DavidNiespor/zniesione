@@ -64,3 +64,9 @@ def test_seed_demo_has_location_and_day_of_readings(tmp_path):
     assert c.get("/api/my/farm").get_json()["lat"] is not None
     did = c.get("/api/my/devices").get_json()[0]["id"]
     assert len(c.get(f"/api/my/devices/{did}/readings?hours=24").get_json()) >= 40
+
+
+def test_index_links_assets_by_content_version(app):
+    r = app.test_client().get("/")
+    html = r.get_data(as_text=True)
+    assert "?v=2" not in html and "/static/app.js?v=" in html and r.headers["Cache-Control"] == "no-cache"

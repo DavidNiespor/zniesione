@@ -1,0 +1,25 @@
+# Stack dla Portainera (Stacks -> Add stack -> Web editor). Zmienne SECRET_KEY i TUNNEL_TOKEN wpisz
+# w sekcji "Environment variables" pod edytorem. Instrukcja: docs/WDROZENIE.md
+services:
+  zniesione:
+    image: ghcr.io/davidniespor/zniesione:latest
+    restart: unless-stopped
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      TZ: Europe/Warsaw
+      REAL_IP_HEADER: CF-Connecting-IP
+      PROXY_COUNT: "1"
+    volumes:
+      - zniesione-data:/data
+
+  cloudflared:
+    image: cloudflare/cloudflared:2024.12.2
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - zniesione
+
+volumes:
+  zniesione-data:

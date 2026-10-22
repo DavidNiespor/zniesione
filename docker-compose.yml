@@ -1,12 +1,30 @@
+# Serwer z Dockerem:  docker compose --profile cloudflare up -d --build   (szczegóły: docs/WDROZENIE.md)
+# Bez Cloudflare (test lokalny):  docker compose up -d --build   ->  http://127.0.0.1:8000
 services:
   zniesione:
     build: .
+    image: ghcr.io/davidniespor/zniesione:latest
     restart: unless-stopped
     environment:
       SECRET_KEY: ${SECRET_KEY:?ustaw SECRET_KEY w pliku .env}
+      TZ: ${TZ:-Europe/Warsaw}
+      # aplikacja jest dostępna tylko przez tunel Cloudflare, więc można ufać nagłówkowi z adresem klienta
+      REAL_IP_HEADER: ${REAL_IP_HEADER:-CF-Connecting-IP}
+      PROXY_COUNT: ${PROXY_COUNT:-1}
     volumes:
       - zniesione-data:/data
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"   # tylko z samego serwera; z internetu ruch przychodzi przez cloudflared
+
+  cloudflared:
+    image: cloudflare/cloudflared:2024.12.2
+    profiles: ["cloudflare"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?ustaw TUNNEL_TOKEN z panelu Cloudflare Zero Trust}
+    depends_on:
+      - zniesione
+
 volumes:
   zniesione-data:

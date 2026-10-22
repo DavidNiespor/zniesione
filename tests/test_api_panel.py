@@ -299,3 +299,22 @@ def test_cookie_not_secure_in_testing_and_json_body_must_be_object(app, anon):
     r = anon.post("/api/auth/login", {"email": "admin@x.pl", "password": "adminadmin"})
     assert "Secure" not in r.headers["Set-Cookie"] and "SameSite=Lax" in r.headers["Set-Cookie"]
     assert anon.post("/api/auth/login", [1, 2]).status_code == 401
+
+
+def test_login_limit_uses_real_client_ip_behind_cloudflare(tmp_path):
+    a = create_app({"DATABASE": str(tmp_path / "p.db"), "TESTING": True, "REAL_IP_HEADER": "CF-Connecting-IP",
+                    "LOGIN_MAX_IP": 3})
+    c = Client(a)
+    for i in range(3):
+        c.post("/api/auth/login", {"email": f"x{i}@x.pl", "password": "zle"}, headers={"CF-Connecting-IP": "203.0.113.5"})
+    assert c.post("/api/auth/login", {"email": "y@x.pl", "password": "zle"}, headers={"CF-Connecting-IP": "203.0.113.5"}).status_code == 429
+    assert c.post("/api/auth/login", {"email": "y@x.pl", "password": "zle"}, headers={"CF-Connecting-IP": "198.51.100.7"}).status_code == 401
+
+
+def test_proxy_count_reads_forwarded_for(tmp_path):
+    a = create_app({"DATABASE": str(tmp_path / "q.db"), "TESTING": True, "PROXY_COUNT": 1, "LOGIN_MAX_IP": 2})
+    c = Client(a)
+    for _ in range(2):
+        c.post("/api/auth/login", {"email": "x@x.pl", "password": "zle"}, headers={"X-Forwarded-For": "203.0.113.9"})
+    assert c.post("/api/auth/login", {"email": "z@x.pl", "password": "zle"}, headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 429
+    assert c.post("/api/auth/login", {"email": "z@x.pl", "password": "zle"}, headers={"X-Forwarded-For": "203.0.113.10"}).status_code == 401
