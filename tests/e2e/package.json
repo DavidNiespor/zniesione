@@ -1,1 +1,1 @@
-{ "name": "zniesione-e2e", "private": true, "dependencies": { "jsdom": "^24.0.0" } }
+{ "name": "zniesione-e2e", "private": true, "scripts": { "e2e": "node run.js" }, "dependencies": { "jsdom": "^24.0.0" } }
