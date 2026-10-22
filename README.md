@@ -10,12 +10,15 @@ słońca), termostat, odczyty temperatury oraz panel administratora z przypisywa
     flask --app zniesione create-admin
     RUN_SCHEDULER=1 flask --app zniesione run        # lub: docker compose up --build
 
+**Produkcja (serwer, Cloudflare, Portainer): [docs/WDROZENIE.md](docs/WDROZENIE.md).**
+
 `/` serwuje interfejs (`static/app.html`, `app.css`, `app.js`). Stara makieta bez backendu jest pod `/prototype`.
 
 Zmienne środowiskowe: `SECRET_KEY`, `DATABASE` (plik SQLite), `RUN_SCHEDULER=1` (silnik w wątku aplikacji),
-`TICK_S` (odstęp obiegu silnika, domyślnie 2 s), `DEVICE_BASE` (adres atrapy urządzenia w testach).
-Godziny harmonogramów i wschód/zachód słońca liczone są w strefie czasowej serwera: na produkcji ustaw ją na
-`Europe/Warsaw` (np. `TZ=Europe/Warsaw` w kontenerze z pakietem tzdata).
+`TICK_S` (odstęp obiegu silnika, domyślnie 2 s), `DEVICE_BASE` (adres atrapy urządzenia w testach),
+`PROXY_COUNT` (liczba odwrotnych proxy przed aplikacją, adres klienta z `X-Forwarded-For`),
+`REAL_IP_HEADER` (np. `CF-Connecting-IP`; tylko gdy aplikacja jest osiągalna wyłącznie przez Cloudflare).
+Godziny harmonogramów i wschód/zachód słońca liczone są w strefie czasowej serwera (`TZ`, w obrazie Dockera domyślnie `Europe/Warsaw`).
 
 ## Funkcje
 Panel rolnika (telefon jako pierwszy, dolne menu Start, Jaja, Sterowanie, Zamówienia, Więcej; na komputerze menu boczne):
@@ -36,15 +39,22 @@ Panel rolnika (telefon jako pierwszy, dolne menu Start, Jaja, Sterowanie, Zamów
   kanały. Reaguje na zmianę stanu pożądanego, więc ręczna zmiana obowiązuje do następnej zmiany w harmonogramie lub termostacie.
   Nieudane polecenie jest ponawiane co 30 s; wszystko jest w bazie, więc restart aplikacji nie zostawia przekaźnika
   włączonego na stałe. Bez `time.sleep`.
-- **Jaja** (zbiór i sprzedaż na miejscu zmieniają stan w sklepie), **Zamówienia**, **Klienci** (z zamówień, przycisk Zadzwoń),
+- **Zabezpieczenia w sterowniku** (generowany YAML ESPHome): każdy przekaźnik `restore_mode: ALWAYS_OFF`, przekaźniki drzwi
+  z `interlock` i wyłączeniem po `door_run_s` w samym sterowniku, więc drzwi zatrzymają się także bez internetu.
+  Po zmianie czasu pracy silnika trzeba ponownie wgrać konfigurację.
+- **Jaja** (zbiór i sprzedaż na miejscu zmieniają stan w sklepie atomowo, dziennik wpisów), **Stado** (stada, liczba kur, rasa,
+  notatki, jaja dziennie i szacunkowa nieśność ze zbiorów), **Zamówienia**, **Klienci** (z zamówień, przycisk Zadzwoń),
   **Oferta** (cena, opis, położenie gospodarstwa, przycisk „Użyj mojej lokalizacji”), **Sterowniki** (zamawianie, etapy dostawy),
-  **Raporty** (sprzedaż z 30 dni i od początku), **Ustawienia** (motyw auto/jasny/czarny zapamiętany w przeglądarce, wylogowanie).
+  **Raporty** (jaja z 7 i 30 dni, sprzedaż z 30 dni i od początku), **Baza wiedzy** (porady z wyszukiwaniem i kategoriami),
+  **Ustawienia** (motyw auto/jasny/czarny zapamiętany w przeglądarce, wylogowanie).
 - Tylko sterowniki z katalogu operatora (`catalog.py`): API odrzuca inne modele, interfejs nie ma innych opcji.
   Najtańszy model (LilyGO T-Relay) jest oznaczony i domyślny, bez ceny w kodzie.
 - Rolnik widzi rodzaje kanałów po polsku, nigdy kluczy `ch1`…; API używa kodów z `catalog.KINDS`.
 
-Administrator: przypisywanie sterowników do farm, etapy dostawy, konfiguracja tunelu WireGuard, odczyt testowy,
-uruchomienie silnika, generator YAML dla ESPHome (T-Relay, T-RelayS3, Waveshare, Shelly: instrukcja MQTT).
+Administrator: przypisywanie sterowników do farm, etapy dostawy, **baza wiedzy** (artykuły z prostym formatowaniem:
+nagłówki, listy, pogrubienie, ramki, linki, obrazy https; podgląd na żywo, szkic lub publikacja), konfiguracja tunelu
+WireGuard, odczyt testowy, uruchomienie silnika, generator YAML dla ESPHome (T-Relay, T-RelayS3, Waveshare, Shelly: instrukcja MQTT).
+Treść artykułów jest escapowana przed formatowaniem, więc HTML wpisany w artykuł nie jest wykonywany.
 
 Bezpieczeństwo: nagłówek `X-Requested-With` przy zmianach (CSRF), każde zapytanie rolnika sprawdza własność urządzenia
 po `farm_id`, limit logowania (5 nieudanych prób na e-mail i 20 na adres IP w ciągu 10 min, licznik w pamięci procesu),
@@ -64,15 +74,20 @@ ciasteczko sesji `HttpOnly`, `SameSite=Lax`, `Secure` poza trybem testowym (bez 
 | `GET /api/my/devices/<id>/readings?hours=` | historia temperatury i wilgotności (1–168 h) |
 | `GET/PUT /api/my/farm` | oferta i położenie (`lat`, `lon`; niewidoczne publicznie) |
 | `GET /api/catalog`, `GET /api/kinds` | katalog z flagami `cheapest`, `default`; polskie nazwy rodzajów |
+| `GET/POST /api/my/flocks`, `PATCH/DELETE …/<id>` | stada: `name`, `birds` (0–100 000), `breed`, `since` (RRRR-MM-DD), `notes` |
+| `GET /api/my/eggs?days=`, `POST /api/my/eggs` | dziennik jaj; `{"kind": "collect" \| "sale", "packs": 1–500}` zmienia stan |
+| `GET /api/kb?q=&category=`, `GET /api/kb/<id>` | baza wiedzy (zalogowani; rolnik widzi tylko opublikowane) |
+| `POST /api/admin/kb`, `PUT/DELETE /api/admin/kb/<id>` | artykuły: `title`, `category`, `body`, `published` (tylko admin) |
 
 ## Ograniczenia i do zrobienia
-- **Do weryfikacji na sprzęcie:** ścieżka REST `/switch/<id>/turn_on` w `services.send_http` (web_server ESPHome).
-  Sterowanie, impulsy drzwi i ponawianie sprawdzono tylko na atrapie `tools/fake_device.py`.
-- Portal nie odczytuje stanu przekaźników ze sterownika: po zaniku zasilania w kurniku stan w portalu może się różnić.
-  Dla drzwi warto dodać krańcówki i zabezpieczenie czasowe w samym firmware (gdy kurnik straci internet, portal nie wyłączy przekaźnika).
-- Stado: ekran z pustym stanem, ewidencja stada jeszcze nie istnieje. Zbiór jaj zmienia tylko licznik `farms.stock`.
-- Limit logowania jest w pamięci jednego procesu (gunicorn z 1 workerem, jak w Dockerfile); za odwrotnym proxy trzeba
-  przekazać prawdziwy adres IP (np. `ProxyFix`), inaczej limit IP obejmie wszystkich naraz.
+- **Do weryfikacji na sprzęcie:** ścieżka REST `/switch/<id>/turn_on` w `services.send_http` (web_server ESPHome)
+  oraz zabezpieczenia w YAML (`interlock`, `on_turn_on` z `delay`). Sterowanie, impulsy drzwi i ponawianie sprawdzono
+  tylko na atrapie `tools/fake_device.py`, a YAML tylko parserem (nie kompilatorem ESPHome).
+- Portal nie odczytuje stanu przekaźników ze sterownika (wymagałoby to API ESPHome, którego nie zgadujemy): po zaniku
+  zasilania w kurniku przekaźniki są wyłączone (`ALWAYS_OFF`), a portal może jeszcze pokazywać stan sprzed awarii.
+- Limit logowania jest w pamięci jednego procesu (gunicorn z 1 workerem, jak w Dockerfile). Za Cloudflare ustaw
+  `REAL_IP_HEADER` albo `PROXY_COUNT` (w `docker-compose.yml` są ustawione).
+- Nieśność w Stadzie jest szacunkowa: liczona z zapisanych zbiorów w pełnych opakowaniach po 10 jaj.
 - Poza zakresem: Shelly przez MQTT (sterowanie zwraca błąd „niezaimplementowane”), serwer WireGuard, OTA, płatności online,
   reset hasła, e-mail/SMS, integracja z e-kurnik.
 
@@ -117,8 +132,8 @@ Scenariusze do przejścia ręcznie (najlepiej na telefonie lub w trybie telefonu
 9. Rolnik, Więcej, Sterowniki: T-Relay jest domyślny i oznaczony jako najtańszy; T-Relay z Tailscale zostaje odrzucony.
 
 ## Testy automatyczne
-    python -m pytest -q                                  # 51 testów API i logiki
-    cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 60 kroków przez interfejs (jsdom), każdy system
+    python -m pytest -q                                  # 59 testów API i logiki
+    cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 72 kroki przez interfejs (jsdom), każdy system
 `run.js` zakłada bazę w katalogu tymczasowym, uruchamia atrapę urządzenia (port 9123) i serwer Flaska (port 8765);
 porty i interpreter zmienisz zmiennymi `DEV_PORT`, `WEB_PORT`, `PYTHON`. `tests/e2e/run.sh` tylko wywołuje `run.js`.
 Test e2e nie zastępuje sprawdzenia w prawdziwej przeglądarce na telefonie.
