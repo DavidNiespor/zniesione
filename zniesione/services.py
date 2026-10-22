@@ -78,14 +78,18 @@ def _point(mode, hm, off, day, sun):
 
 def window(s, day, sun=None):
     """Okno harmonogramu w dniu `day`: (początek, koniec) w sekundach od północy, koniec może wypaść po północy.
-    sun(day) zwraca lokalny (wschód, zachód) albo None."""
-    a = _point(_get(s, "mode", "time"), s["t_on"], _get(s, "offset_min", 0), day, sun)
+    sun(day) zwraca lokalny (wschód, zachód) albo None. Okno zależne od słońca, które przeszłoby przez północ
+    i trwało ponad 18 h, jest puste (np. zimą „od wschodu −30 min do 07:00”, gdy wschód jest po 07:30)."""
+    mode, off_mode = _get(s, "mode", "time"), _get(s, "off_mode", "time")
+    a = _point(mode, s["t_on"], _get(s, "offset_min", 0), day, sun)
     if a is None:
         return None
     if _get(s, "duration_s", None):
         return a, a + s["duration_s"]
-    b = _point(_get(s, "off_mode", "time"), s["t_off"], _get(s, "off_offset_min", 0), day, sun)
+    b = _point(off_mode, s["t_off"], _get(s, "off_offset_min", 0), day, sun)
     if b is None or a == b:
+        return None
+    if b < a and (mode, off_mode) != ("time", "time") and b + DAY_S - a > 18 * 3600:
         return None
     return a, b if b > a else b + DAY_S
 

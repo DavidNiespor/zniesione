@@ -2,7 +2,7 @@ import os
 import re
 import secrets
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import Flask, g, jsonify, request, send_from_directory, session
@@ -72,11 +72,15 @@ def create_app(test_config=None):
         return q("SELECT * FROM devices WHERE id=? AND farm_id=?", did, g.user["farm_id"]).fetchone()
 
     def dev_json(d, admin=False):
-        ch = [dict(c) for c in q("SELECT key,name,kind,state FROM channels WHERE device_id=?", d["id"])]
-        r = q("SELECT t,h,at FROM readings WHERE device_id=? ORDER BY id DESC LIMIT 1", d["id"]).fetchone()
+        rules = {r["ch"]: dict(threshold=r["threshold"], enabled=bool(r["enabled"]))
+                 for r in q("SELECT * FROM rules WHERE device_id=?", d["id"])}
+        ch = [dict(c, rule=rules.get(c["key"]) if c["kind"] in cat.COOL | cat.HEAT else None)
+              for c in q("SELECT key,name,kind,state,off_at FROM channels WHERE device_id=? ORDER BY id", d["id"])]
+        rs = [dict(r) for r in q("SELECT t,h,at FROM readings WHERE device_id=? ORDER BY id DESC LIMIT 10", d["id"])]
         return dict(id=d["id"], code=d["code"], model=d["model"], model_name=cat.MODELS[d["model"]]["name"],
                     tunnel=d["tunnel"], ip=d["ip"], stage=d["stage"], online=bool(d["online"]), addr=d["addr"],
-                    farm_id=d["farm_id"], channels=ch, reading=dict(r) if r else None,
+                    farm_id=d["farm_id"], channels=ch, reading=rs[0] if rs else None, readings=rs,
+                    last_seen=d["last_seen"], door=d["door"], door_run_s=d["door_run_s"],
                     **({"api_key": d["api_key"]} if admin else {}))
 
     def new_device(model, farm_id, tunnel, addr):
@@ -255,6 +259,60 @@ def create_app(test_config=None):
     def my_devices():
         return jsonify([dev_json(d) for d in q("SELECT * FROM devices WHERE farm_id=?", g.user["farm_id"])])
 
+    @app.patch("/api/my/devices/<int:did>")
+    @need("farmer")
+    def my_device_patch(did):
+        d, b = own_device(did), body()
+        if not d:
+            return err("Nie znaleziono", 404)
+        if "door_run_s" in b:
+            if not integer(b["door_run_s"], 1, 300):
+                return err("Czas pracy silnika drzwi od 1 do 300 s")
+            q("UPDATE devices SET door_run_s=? WHERE id=?", b["door_run_s"], did)
+            commit()
+        return jsonify(dev_json(own_device(did)))
+
+    @app.post("/api/my/devices/<int:did>/door")
+    @need("farmer")
+    def door_action(did):
+        d, action = own_device(did), body().get("action")
+        if not d:
+            return err("Nie znaleziono", 404)
+        if action not in ("open", "close"):
+            return err("Akcja musi być open lub close")
+        if not q("SELECT 1 FROM channels WHERE device_id=? AND kind=?", did, "door_" + action).fetchone():
+            return err("Ten sterownik nie ma przekaźnika drzwi", 409)
+        if d["stage"] < 3 or not d["online"]:
+            return err("Urządzenie jest niedostępne", 409)
+        ok, e = sv.door(app, d, action, "manual")
+        return (jsonify(ok=True), 200) if ok else (jsonify(error=f"Urządzenie nie odpowiada: {e}"), 502)
+
+    @app.get("/api/my/devices/<int:did>/log")
+    @need("farmer")
+    def device_log(did):
+        lim = request.args.get("limit", "30")
+        if not own_device(did):
+            return err("Nie znaleziono", 404)
+        if not lim.isdigit() or not 1 <= int(lim) <= 200:
+            return err("Parametr limit od 1 do 200")
+        rows = q("SELECT l.*, c.name, c.kind FROM log l LEFT JOIN channels c ON c.device_id=l.device_id AND c.key=l.ch "
+                 "WHERE l.device_id=? ORDER BY l.id DESC LIMIT ?", did, int(lim))
+        return jsonify([dict(id=r["id"], at=r["at"], ch=r["ch"], ch_name=r["name"] or r["ch"], kind=r["kind"],
+                             state=bool(r["state"]), src=r["src"], ok=bool(r["ok"])) for r in rows])
+
+    @app.get("/api/my/devices/<int:did>/readings")
+    @need("farmer")
+    def device_history(did):
+        hours = request.args.get("hours", "24")
+        if not own_device(did):
+            return err("Nie znaleziono", 404)
+        if not hours.isdigit() or not 1 <= int(hours) <= 168:
+            return err("Parametr hours od 1 do 168")
+        since = (datetime.now() - timedelta(hours=int(hours))).isoformat()
+        rows = q("SELECT t,h,at FROM readings WHERE device_id=? AND at>=? ORDER BY at", did, since).fetchall()
+        step = max(1, len(rows) // 288)  # do wykresu wystarczy ok. 300 punktów
+        return jsonify([dict(r) for r in rows[::step] + (rows[-1:] if (len(rows) - 1) % step else [])])
+
     @app.get("/api/my/devices/<int:did>/yaml")
     @need("farmer")
     def my_yaml(did):
@@ -278,7 +336,7 @@ def create_app(test_config=None):
             name, kind = b.get("name", c["name"]), b.get("kind", c["kind"])
             if not isinstance(name, str) or not name.strip() or kind not in cat.KINDS:
                 return err("Niepoprawna nazwa lub rodzaj")
-            q("UPDATE channels SET name=?,kind=? WHERE id=?", name.strip()[:60], kind, c["id"])
+            q("UPDATE channels SET name=?,kind=?,want=NULL WHERE id=?", name.strip()[:60], kind, c["id"])
             commit()
             return jsonify(ok=True)
         if not isinstance(b.get("state"), bool):
@@ -288,8 +346,81 @@ def create_app(test_config=None):
         pair = {"door_open": "door_close", "door_close": "door_open"}.get(c["kind"])
         if pair and b["state"] and q("SELECT 1 FROM channels WHERE device_id=? AND kind=? AND state=1", did, pair).fetchone():
             return err("Blokada: przekaźniki drzwi nie mogą działać jednocześnie", 409)
-        ok, e = sv.command(app, d, c, b["state"], "manual")
+        kw = {"off_at": datetime.now() + timedelta(seconds=d["door_run_s"])} if pair and b["state"] else {}
+        ok, e = sv.command(app, d, c, b["state"], "manual", **kw)
+        if ok and kw:  # przekaźnik drzwi zawsze jako impuls, wyłączy go silnik
+            q("UPDATE devices SET door=? WHERE id=?", "open" if c["kind"] == "door_open" else "closed", did)
+            commit()
         return (jsonify(ok=True), 200) if ok else (jsonify(error=f"Urządzenie nie odpowiada: {e}"), 502)
+
+    def farm_sun():
+        f = q("SELECT lat, lon FROM farms WHERE id=?", g.user["farm_id"]).fetchone()
+        return sv.farm_sun(f["lat"], f["lon"])
+
+    def sched_json(r, sun):
+        w = sv.window(r, datetime.now().date(), sun)
+        hm = lambda x: f"{x // 3600 % 24:02d}:{x // 60 % 60:02d}"
+        return dict(r, enabled=bool(r["enabled"]), today_on=w and hm(w[0]), today_off=w and hm(w[1]))
+
+    def sched_check(did, s, sun):
+        """Waliduje pełny harmonogram (po scaleniu zmian z zapisanym). Zwraca komunikat błędu albo None."""
+        c = q("SELECT kind FROM channels WHERE device_id=? AND key=?", did, s["ch"]).fetchone() \
+            if isinstance(s["ch"], str) else None
+        if not c:
+            return "Nieznany kanał"
+        if c["kind"] == "door_close":
+            return "Harmonogram drzwi ustaw na kanale otwierania drzwi"
+        if s["days"] not in DAYS:
+            return "Niepoprawne dni"
+        if s["mode"] not in sv.MODES or s["off_mode"] not in sv.MODES:
+            return "Niepoprawny rodzaj harmonogramu (time, sunrise, sunset)"
+        if not isinstance(s["enabled"], (bool, int)):
+            return "Pole enabled musi być true lub false"
+        if not (integer(s["offset_min"], -180, 180) and integer(s["off_offset_min"], -180, 180)):
+            return "Przesunięcie od -180 do 180 minut"
+        if s["mode"] == "time" and not sv.valid_hm(s["t_on"]):
+            return "Niepoprawna godzina włączenia (GG:MM)"
+        if s["duration_s"] is not None:
+            if c["kind"] == "door_open":
+                return "Drzwi mają porę otwarcia i zamknięcia, bez czasu trwania"
+            if not integer(s["duration_s"], 1, 43200):
+                return "Czas działania od 1 s do 12 h"
+        elif s["off_mode"] == "time" and not sv.valid_hm(s["t_off"]):
+            return "Niepoprawna godzina wyłączenia (GG:MM)"
+        elif s["mode"] == s["off_mode"] == "time" and s["t_on"] == s["t_off"]:
+            return "Początek i koniec nie mogą być takie same"
+        uses_sun = s["mode"] != "time" or (s["duration_s"] is None and s["off_mode"] != "time")
+        if uses_sun and not sun:
+            return "Ustaw położenie gospodarstwa w Ofercie, aby użyć wschodu i zachodu słońca"
+        return None
+
+    SCHED = dict(ch=None, mode="time", t_on="", offset_min=0, off_mode="time", t_off="", off_offset_min=0,
+                 duration_s=None, days="a", enabled=True)
+
+    def reevaluate(did, *keys):
+        """Po zmianie harmonogramu lub termostatu silnik ocenia kanał od nowa przy najbliższym obiegu."""
+        q(f"UPDATE channels SET want=NULL WHERE device_id=? AND key IN ({','.join('?' * len(keys))})", did, *keys)
+        q("UPDATE devices SET door_want=NULL WHERE id=?", did)
+
+    def sched_save(did, sid, b, old):
+        if "enabled" in b and not isinstance(b["enabled"], bool):
+            return err("Pole enabled musi być true lub false")
+        s = {**SCHED, **{k: old[k] for k in SCHED if old}, **{k: b[k] for k in SCHED if k in b}}
+        sun = farm_sun()
+        msg = sched_check(did, s, sun)
+        if msg:
+            return err(msg)
+        vals = [s["ch"], s["mode"], s["t_on"] if sv.valid_hm(s["t_on"]) else "", s["offset_min"] if s["mode"] != "time" else 0,
+                s["off_mode"], s["t_off"] if s["duration_s"] is None and sv.valid_hm(s["t_off"]) else "",
+                s["off_offset_min"] if s["off_mode"] != "time" else 0, s["duration_s"], s["days"], int(bool(s["enabled"]))]
+        cols = "ch,mode,t_on,offset_min,off_mode,t_off,off_offset_min,duration_s,days,enabled"
+        if sid:
+            q(f"UPDATE schedules SET {','.join(c + '=?' for c in cols.split(','))} WHERE id=?", *vals, sid)
+        else:
+            sid = q(f"INSERT INTO schedules(device_id,{cols}) VALUES(?,{','.join('?' * len(vals))})", did, *vals).lastrowid
+        reevaluate(did, s["ch"], *([old["ch"]] if old else []))
+        commit()
+        return jsonify(sched_json(q("SELECT * FROM schedules WHERE id=?", sid).fetchone(), sun)), 200 if old else 201
 
     @app.route("/api/my/devices/<int:did>/schedules", methods=["GET", "POST"])
     @need("farmer")
@@ -297,25 +428,27 @@ def create_app(test_config=None):
         if not own_device(did):
             return err("Nie znaleziono", 404)
         if request.method == "GET":
-            return jsonify([dict(r) for r in q("SELECT * FROM schedules WHERE device_id=?", did)])
-        b = body()
-        c = q("SELECT kind FROM channels WHERE device_id=? AND key=?", did, b.get("ch")).fetchone()
-        if not c:
-            return err("Nieznany kanał")
-        if c["kind"] in ("door_open", "door_close"):
-            return err("Harmonogram drzwi wymaga krańcówek i czasu pracy silnika (jeszcze niedostępne)")
-        if not (sv.valid_hm(b.get("t_on")) and sv.valid_hm(b.get("t_off")) and b.get("days") in DAYS):
-            return err("Niepoprawne godziny lub dni")
-        sid = q("INSERT INTO schedules(device_id,ch,t_on,t_off,days) VALUES(?,?,?,?,?)", did, b["ch"], b["t_on"], b["t_off"], b["days"]).lastrowid
-        commit()
-        return jsonify(id=sid), 201
+            sun = farm_sun()
+            return jsonify([sched_json(r, sun) for r in q("SELECT * FROM schedules WHERE device_id=? ORDER BY id", did)])
+        return sched_save(did, None, body(), None)
+
+    @app.patch("/api/my/devices/<int:did>/schedules/<int:sid>")
+    @need("farmer")
+    def patch_schedule(did, sid):
+        old = q("SELECT * FROM schedules WHERE id=? AND device_id=?", sid, did).fetchone() if own_device(did) else None
+        if not old:
+            return err("Nie znaleziono", 404)
+        return sched_save(did, sid, body(), old)
 
     @app.delete("/api/my/devices/<int:did>/schedules/<int:sid>")
     @need("farmer")
     def del_schedule(did, sid):
         if not own_device(did):
             return err("Nie znaleziono", 404)
+        old = q("SELECT ch FROM schedules WHERE id=? AND device_id=?", sid, did).fetchone()
         n = q("DELETE FROM schedules WHERE id=? AND device_id=?", sid, did).rowcount
+        if n:
+            reevaluate(did, old["ch"])
         commit()
         return jsonify(ok=True) if n else err("Nie znaleziono", 404)
 
@@ -331,8 +464,11 @@ def create_app(test_config=None):
             return err("Termostat dostępny tylko dla wentylacji i grzania")
         if not isinstance(b.get("threshold"), (int, float)) or isinstance(b.get("threshold"), bool) or not -20 <= b["threshold"] <= 60:
             return err("Próg temperatury od -20 do 60 °C")
+        if not isinstance(b.get("enabled", True), bool):
+            return err("Pole enabled musi być true lub false")
         q("INSERT INTO rules(device_id,ch,threshold,enabled) VALUES(?,?,?,?) ON CONFLICT(device_id,ch) "
           "DO UPDATE SET threshold=excluded.threshold, enabled=excluded.enabled", did, key, b["threshold"], int(bool(b.get("enabled", True))))
+        reevaluate(did, key)
         commit()
         return jsonify(ok=True)
 

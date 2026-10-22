@@ -62,7 +62,8 @@ def test_schedule_crud_validation_and_engine(app, admin, farmer):
     c, _ = farmer
     did, _k = online_device(app, admin, farmer)
     base = f"/api/my/devices/{did}/schedules"
-    assert c.post(base, {"ch": "ch2", "t_on": "06:00", "t_off": "07:00", "days": "a"}).status_code == 400   # drzwi
+    # harmonogram drzwi jest teraz dostępny (na kanale otwierania), odmowa dotyczy kanału zamykania
+    assert c.post(base, {"ch": "ch3", "t_on": "06:00", "t_off": "07:00", "days": "a"}).status_code == 400   # drzwi
     assert c.post(base, {"ch": "ch1", "t_on": "25:00", "t_off": "07:00", "days": "a"}).status_code == 400
     assert c.post(base, {"ch": "nope", "t_on": "06:00", "t_off": "07:00", "days": "a"}).status_code == 400
     sid = c.post(base, {"ch": "ch1", "t_on": "06:00", "t_off": "18:00", "days": "a"}).get_json()["id"]

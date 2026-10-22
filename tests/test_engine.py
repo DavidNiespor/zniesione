@@ -44,6 +44,11 @@ def test_sunrise_window_with_offset_to_fixed_time():
     assert sv.sched_active(s, at(5, 30), fixed_sun) and sv.sched_active(s, at(6, 59), fixed_sun)
     assert not sv.sched_active(s, at(7, 0), fixed_sun)
     assert not sv.sched_active(s, at(5, 45), None)                 # bez położenia farmy nie działa
+    late = lambda day: (datetime.combine(day, datetime.min.time()).replace(hour=7, minute=40),) * 2
+    assert sv.window(s, date(2026, 12, 21), late) is None           # zimą wschód −30 min po 07:00: nic
+    assert not sv.sched_active(s, datetime(2026, 12, 21, 12, 0), late)
+    night = S(mode="sunset", off_mode="sunrise")                     # od zachodu do wschodu: przez północ
+    assert sv.window(night, date(2026, 10, 22), fixed_sun) == (18 * 3600 + 30 * 60, 6 * 3600 + 86400)
 
 
 def test_sunset_window_overnight_and_duration():
