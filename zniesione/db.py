@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS kb(id INTEGER PRIMARY KEY, title TEXT NOT NULL, categ
 COLUMNS = [
     ("farms", "lat", "REAL"), ("farms", "lon", "REAL"),
     ("devices", "door_run_s", "INTEGER NOT NULL DEFAULT 20"), ("devices", "door", "TEXT"),
-    ("devices", "door_want", "INTEGER"),
+    ("devices", "door_want", "INTEGER"), ("devices", "wg_priv", "TEXT"), ("devices", "wg_pub", "TEXT"),
     ("channels", "off_at", "TEXT"), ("channels", "want", "INTEGER"),
     ("schedules", "mode", "TEXT NOT NULL DEFAULT 'time'"), ("schedules", "offset_min", "INTEGER NOT NULL DEFAULT 0"),
     ("schedules", "off_mode", "TEXT NOT NULL DEFAULT 'time'"), ("schedules", "off_offset_min", "INTEGER NOT NULL DEFAULT 0"),

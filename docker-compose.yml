@@ -1,30 +1,100 @@
-# Serwer z Dockerem:  docker compose --profile cloudflare up -d --build   (szczegóły: docs/WDROZENIE.md)
-# Bez Cloudflare (test lokalny):  docker compose up -d --build   ->  http://127.0.0.1:8000
+# Pełny stack zniesione.pl: portal, serwer WireGuard dla sterowników w kurnikach, tunel Cloudflare, kopie zapasowe.
+#
+# Serwer:     cp .env.example .env  (uzupełnij)  &&  docker compose up -d --build
+# Portainer:  Stacks -> Add stack -> Repository -> to repozytorium, plik docker-compose.yml, zmienne z .env.example
+# Instrukcja: docs/WDROZENIE.md
+#
+# Portal i WireGuard działają we wspólnej sieci kontenera „siec”, więc portal widzi sterowniki pod adresami 10.8.0.x.
+# W Cloudflare (Public Hostname) adres usługi to:  http://portal:8000
+name: zniesione
+
 services:
+  siec:
+    # trzyma wspólną sieć portalu i WireGuard (jak „pod” w Kubernetes); porty wystawia się tutaj
+    image: alpine:3.20
+    command: ["tail", "-f", "/dev/null"]
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"            # portal tylko z samego serwera; z internetu przez tunel Cloudflare
+      - "${WG_PORT:-51820}:51820/udp"     # WireGuard dla sterowników (nie przechodzi przez Cloudflare)
+    networks:
+      default:
+        aliases: [portal]
+
   zniesione:
     build: .
-    image: ghcr.io/davidniespor/zniesione:latest
+    image: zniesione:latest
+    pull_policy: build
     restart: unless-stopped
+    network_mode: service:siec
+    depends_on: [siec]
     environment:
-      SECRET_KEY: ${SECRET_KEY:?ustaw SECRET_KEY w pliku .env}
+      SECRET_KEY: ${SECRET_KEY:?ustaw SECRET_KEY w pliku .env albo w zmiennych stacka}
       TZ: ${TZ:-Europe/Warsaw}
-      # aplikacja jest dostępna tylko przez tunel Cloudflare, więc można ufać nagłówkowi z adresem klienta
-      REAL_IP_HEADER: ${REAL_IP_HEADER:-CF-Connecting-IP}
-      PROXY_COUNT: ${PROXY_COUNT:-1}
+      REAL_IP_HEADER: CF-Connecting-IP    # ruch przychodzi wyłącznie przez cloudflared
+      PROXY_COUNT: "1"
+      WG_CONF: /data/wireguard/wg0.conf   # portal tworzy konfigurację serwera WireGuard i dopisuje sterowniki
     volumes:
       - zniesione-data:/data
-    ports:
-      - "127.0.0.1:8000:8000"   # tylko z samego serwera; z internetu ruch przychodzi przez cloudflared
+
+  wireguard:
+    image: alpine:3.20
+    restart: unless-stopped
+    network_mode: service:siec
+    depends_on: [zniesione]
+    cap_add: [NET_ADMIN]
+    volumes:
+      - zniesione-data:/data:ro
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        apk add --no-cache -q bash wireguard-tools iproute2
+        CONF=/data/wireguard/wg0.conf
+        until [ -s "$$CONF" ]; do echo "Czekam na $$CONF (tworzy go portal)"; sleep 5; done
+        mkdir -p /etc/wireguard
+        install -m 600 "$$CONF" /etc/wireguard/wg0.conf
+        ip link del wg0 2>/dev/null || true
+        wg-quick up wg0
+        last=$$(md5sum "$$CONF")
+        echo "WireGuard działa"
+        while sleep 15; do
+          now=$$(md5sum "$$CONF")
+          if [ "$$now" != "$$last" ]; then
+            install -m 600 "$$CONF" /etc/wireguard/wg0.conf
+            wg-quick strip wg0 > /tmp/wg0.strip && wg syncconf wg0 /tmp/wg0.strip && echo "Wczytano zmiany sterowników"
+            last=$$now
+          fi
+        done
 
   cloudflared:
     image: cloudflare/cloudflared:2024.12.2
-    profiles: ["cloudflare"]
     restart: unless-stopped
     command: tunnel --no-autoupdate run
+    depends_on: [zniesione]
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:?ustaw TUNNEL_TOKEN z panelu Cloudflare Zero Trust}
-    depends_on:
-      - zniesione
+
+  kopie:
+    image: zniesione:latest
+    pull_policy: never                    # ten sam obraz co portal, budowany wyżej
+    restart: unless-stopped
+    depends_on: [zniesione]
+    command: ["python", "-m", "zniesione.backup"]
+    healthcheck:
+      disable: true
+    environment:
+      TZ: ${TZ:-Europe/Warsaw}
+      DATABASE: /data/zniesione.db
+      BACKUP_DIR: /backup
+      BACKUP_EVERY_H: "24"
+      KEEP_DAYS: ${KEEP_DAYS:-14}
+    volumes:
+      - zniesione-data:/data
+      - kopie:/backup
 
 volumes:
-  zniesione-data:
+  zniesione-data:          # ta sama nazwa co w poprzedniej wersji: istniejąca baza zostaje
+  kopie:

@@ -643,7 +643,11 @@ async function vAdmin(tab) {
       <div><button data-act="assign" data-id="${d.id}">Przypisz do farmy</button></div></div>
       <div class="actions"><button class="pri" data-act="stage" data-id="${d.id}" data-s="${d.stage}" ${d.stage >= 3 ? 'disabled' : ''}>${d.stage >= 3 ? 'Wszystkie etapy zakończone'
       : 'Następny etap: ' + STAGES[d.stage + 1]}</button></div>
-      <details><summary>Dane techniczne</summary><p>Połączenie: ${esc(d.tunnel)} · adres VPN: ${esc(d.ip)} · dostawa: ${esc(d.addr)}</p><p>Klucz API: <code>${esc(d.api_key)}</code></p></details>
+      <details><summary>Dane techniczne</summary><p>Połączenie: ${esc(d.tunnel)} · adres VPN: ${esc(d.ip)} · dostawa: ${esc(d.addr)}</p><p>Klucz API: <code>${esc(d.api_key)}</code></p>
+      <p class="mu">Instalacja ESPHome potrzebuje konfiguracji (widzi ją też rolnik) i pliku secrets.yaml z kluczami WireGuard (tylko tutaj).
+      Hasło API i OTA są losowane przy każdym pobraniu: wgraj oba pliki razem.</p>
+      <div class="actions"><button data-act="secrets" data-id="${d.id}">Pobierz secrets.yaml</button><button data-act="copy" data-id="s${d.id}">📋 Kopiuj</button></div>
+      <pre data-yaml="s${d.id}" hidden></pre></details>
       <details><summary>Odczyt testowy</summary><form data-f="reading" data-key="${esc(d.api_key)}"><div class="row"><div>${fld('Temperatura (°C)', 't', 'number', 'step="0.1" value="21"').replace(/f-t"/g, `rt${d.id}"`)}</div>
       <div>${fld('Wilgotność (%)', 'h', 'number', 'value="60"').replace(/f-h"/g, `rh${d.id}"`)}</div><div><button>Wyślij odczyt</button></div></div></form></details></section>`).join('');
   } else if (tab === 'cfg') {
@@ -681,6 +685,10 @@ const ACT = {
   schcancel: b => schedFill(b.closest('form'), null),
   ruleoff: b => saveRule(b.closest('form'), +b.closest('form').elements.threshold.value, false),
   logmore(b) { reloadLog(+b.dataset.id, 100); b.hidden = true },
+  async secrets(b) {
+    const r = await api('GET', `/api/admin/devices/${b.dataset.id}/secrets`), pre = $(`[data-yaml="s${b.dataset.id}"]`);
+    pre.textContent = typeof r.data === 'string' && r.ok ? r.data : errMsg(r); pre.hidden = false;
+  },
   async delflock(b) { if (done(await api('DELETE', `/api/my/flocks/${b.dataset.id}`), 'Stado usunięte')) await refresh() },
   kbcat(b) { kbCat = b.dataset.v; $$('[data-act=kbcat]').forEach(x => x.setAttribute('aria-pressed', x === b)); kbSearch() },
   async kbdel(b) { if (done(await api('DELETE', `/api/admin/kb/${b.dataset.id}`), 'Artykuł usunięty')) go('admin-kb') },

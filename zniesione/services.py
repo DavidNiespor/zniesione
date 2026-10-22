@@ -1,4 +1,5 @@
 """Logika bez zależności od Flaska: harmonogramy, termostat, YAML, adresy IP, silnik sterowania."""
+import base64
 import json
 import math
 import os
@@ -130,6 +131,79 @@ def desired(kind, scheds, rule, temp, now, cur, sun=None):
     if act:
         return any(sched_active(s, now, sun) for s in act)
     return None
+
+
+P25519 = 2 ** 255 - 19
+
+
+def x25519(k, u):
+    """Mnożenie skalarne na Curve25519 (RFC 7748). Używane tylko do kluczy WireGuard generowanych na serwerze."""
+    k = bytearray(k)
+    k[0] &= 248
+    k[31] = (k[31] & 127) | 64
+    k, u = int.from_bytes(k, "little"), int.from_bytes(u, "little") & ((1 << 255) - 1)
+    x2, z2, x3, z3, swap = 1, 0, u, 1, 0
+    for t in reversed(range(255)):
+        bit = (k >> t) & 1
+        if swap ^ bit:
+            x2, x3, z2, z3 = x3, x2, z3, z2
+        swap = bit
+        a, b, c, d = x2 + z2, x2 - z2, x3 + z3, x3 - z3
+        aa, bb, da, cb = a * a % P25519, b * b % P25519, d * a % P25519, c * b % P25519
+        e = aa - bb
+        x3, z3 = (da + cb) ** 2 % P25519, u * (da - cb) ** 2 % P25519
+        x2, z2 = aa * bb % P25519, e * (aa + 121665 * e) % P25519
+    if swap:
+        x2, z2 = x3, z3
+    return (x2 * pow(z2, P25519 - 2, P25519) % P25519).to_bytes(32, "little")
+
+
+def wg_keypair():
+    priv = bytearray(os.urandom(32))
+    priv[0] &= 248
+    priv[31] = (priv[31] & 127) | 64
+    pub = x25519(bytes(priv), (9).to_bytes(32, "little"))
+    return base64.b64encode(bytes(priv)).decode(), base64.b64encode(pub).decode()
+
+
+def wg_server(db):
+    """Klucze serwera WireGuard: tworzone raz i trzymane w tabeli config (nie są zwracane przez API)."""
+    r = {x["k"]: x["v"] for x in db.execute("SELECT k, v FROM config WHERE k IN ('wg_priv', 'wg_pub')")}
+    if len(r) < 2:
+        r["wg_priv"], r["wg_pub"] = wg_keypair()
+        db.executemany("INSERT OR REPLACE INTO config(k, v) VALUES(?, ?)", r.items())
+        db.commit()
+    return r["wg_priv"], r["wg_pub"]
+
+
+def write_wg_conf(db, path):
+    """Konfiguracja serwera WireGuard (wg0.conf) z sterownikami łączącymi się przez WireGuard. Brakujące klucze
+    sterowników są generowane. Kontener wireguard wczytuje zmiany sam (wg syncconf)."""
+    priv, _ = wg_server(db)
+    for d in db.execute("SELECT id FROM devices WHERE tunnel='wg' AND wg_pub IS NULL").fetchall():
+        db.execute("UPDATE devices SET wg_priv=?, wg_pub=? WHERE id=?", (*wg_keypair(), d["id"]))
+    db.commit()
+    text = (f"# Plik tworzy portal zniesione.pl. Nie edytuj ręcznie.\n[Interface]\nAddress = {cfg(db, 'net')}.1/24\n"
+            f"ListenPort = 51820\nPrivateKey = {priv}\n")
+    for d in db.execute("SELECT code, ip, wg_pub FROM devices WHERE tunnel='wg' ORDER BY id"):
+        text += f"\n[Peer]\n# {d['code']}\nPublicKey = {d['wg_pub']}\nAllowedIPs = {d['ip']}/32\n"
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)  # podmiana w jednym kroku: kontener wireguard nie przeczyta połowy pliku
+    return text
+
+
+def esphome_secrets(dev, db):
+    _, pub = wg_server(db)
+    out = (f"# secrets.yaml dla {dev['code']}: wgraj razem z konfiguracją ESPHome\n"
+           "wifi_ssid: \"\"        # nazwa sieci Wi-Fi w kurniku\nwifi_password: \"\"\n"
+           f"api_key: \"{base64.b64encode(os.urandom(32)).decode()}\"\nota_password: \"{os.urandom(12).hex()}\"\n")
+    if dev["tunnel"] == "wg":
+        out += f"wg_privkey: \"{dev['wg_priv']}\"\nwg_server_pubkey: \"{pub}\"\n"
+    return out
 
 
 def alloc_ip(db):

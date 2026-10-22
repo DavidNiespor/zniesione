@@ -8,9 +8,11 @@ słońca), termostat, odczyty temperatury oraz panel administratora z przypisywa
     pip install -r requirements-dev.txt && python -m pytest -q
     export SECRET_KEY=$(python -c "import secrets;print(secrets.token_hex(32))")
     flask --app zniesione create-admin
-    RUN_SCHEDULER=1 flask --app zniesione run        # lub: docker compose up --build
+    RUN_SCHEDULER=1 flask --app zniesione run
 
-**Produkcja (serwer, Cloudflare, Portainer): [docs/WDROZENIE.md](docs/WDROZENIE.md).**
+**Produkcja:** `docker-compose.yml` to pełny stack: portal, serwer WireGuard dla sterowników (klucze i `wg0.conf`
+tworzy portal), tunel Cloudflare i codzienne kopie bazy. Na serwerze: `cp .env.example .env` (uzupełnij),
+`docker compose up -d --build`; w Portainerze: stack z repozytorium. Instrukcja: [docs/WDROZENIE.md](docs/WDROZENIE.md).
 
 `/` serwuje interfejs (`static/app.html`, `app.css`, `app.js`). Stara makieta bez backendu jest pod `/prototype`.
 
@@ -88,7 +90,8 @@ ciasteczko sesji `HttpOnly`, `SameSite=Lax`, `Secure` poza trybem testowym (bez 
 - Limit logowania jest w pamięci jednego procesu (gunicorn z 1 workerem, jak w Dockerfile). Za Cloudflare ustaw
   `REAL_IP_HEADER` albo `PROXY_COUNT` (w `docker-compose.yml` są ustawione).
 - Nieśność w Stadzie jest szacunkowa: liczona z zapisanych zbiorów w pełnych opakowaniach po 10 jaj.
-- Poza zakresem: Shelly przez MQTT (sterowanie zwraca błąd „niezaimplementowane”), serwer WireGuard, OTA, płatności online,
+- Hasło API i OTA w secrets.yaml są losowane przy każdym pobraniu (portal ich nie używa); klucze WireGuard są stałe.
+- Poza zakresem: Shelly przez MQTT (sterowanie zwraca błąd „niezaimplementowane”), OTA z portalu, płatności online,
   reset hasła, e-mail/SMS, integracja z e-kurnik.
 
 ## Windows (PowerShell)
@@ -132,8 +135,8 @@ Scenariusze do przejścia ręcznie (najlepiej na telefonie lub w trybie telefonu
 9. Rolnik, Więcej, Sterowniki: T-Relay jest domyślny i oznaczony jako najtańszy; T-Relay z Tailscale zostaje odrzucony.
 
 ## Testy automatyczne
-    python -m pytest -q                                  # 59 testów API i logiki
-    cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 72 kroki przez interfejs (jsdom), każdy system
+    python -m pytest -q                                  # 63 testy API i logiki
+    cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 73 kroki przez interfejs (jsdom), każdy system
 `run.js` zakłada bazę w katalogu tymczasowym, uruchamia atrapę urządzenia (port 9123) i serwer Flaska (port 8765);
 porty i interpreter zmienisz zmiennymi `DEV_PORT`, `WEB_PORT`, `PYTHON`. `tests/e2e/run.sh` tylko wywołuje `run.js`.
 Test e2e nie zastępuje sprawdzenia w prawdziwej przeglądarce na telefonie.

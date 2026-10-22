@@ -193,6 +193,9 @@ async function page() {
   const fsel = newDev.querySelector(".fm"); fsel.value = [...fsel.options].find((x) => /Wierzba/.test(x.textContent)).value;
   p.click(newDev.querySelector("[data-act=assign]"));
   ok(await p.wait(() => /Przypisano/.test(p.toast())), "admin przypisuje sterownik do innej farmy");
+  await p.wait(() => p.$("[data-act=secrets]"));
+  p.click(p.$("[data-act=secrets]"));
+  ok(await p.wait(() => /wg_privkey: "[A-Za-z0-9+/]{43}="/.test(p.$("[data-yaml^='s']").textContent) && /wg_server_pubkey/.test(p.$("[data-yaml^='s']").textContent)), "admin pobiera secrets.yaml z kluczami WireGuard");
   const rd = p.$$("form[data-f=reading]")[0]; p.setv(rd, "t", "28"); p.setv(rd, "h", "55"); p.submit(rd);
   ok(await p.wait(() => /Odczyt wysłany/.test(p.toast())), "symulowany odczyt 28 °C wysłany");
   await p.clickBtn("Narzędzia"); await p.wait(() => p.$("[data-act=tick]"));

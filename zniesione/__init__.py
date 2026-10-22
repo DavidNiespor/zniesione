@@ -99,12 +99,16 @@ def create_app(test_config=None):
                       TICK_S=float(os.environ.get("TICK_S", "2")),
                       PROXY_COUNT=int(os.environ.get("PROXY_COUNT") or 0),
                       REAL_IP_HEADER=os.environ.get("REAL_IP_HEADER", ""),
+                      WG_CONF=os.environ.get("WG_CONF", ""),
                       SEND=sv.send_http, RUN_SCHEDULER=os.environ.get("RUN_SCHEDULER") == "1")
     app.config.update(test_config or {})
     if app.config["PROXY_COUNT"]:  # za odwrotnym proxy lub Cloudflare Tunnel: adres klienta z X-Forwarded-For
         n = app.config["PROXY_COUNT"]
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=n, x_proto=n)
     dbm.init_app(app)
+    if app.config["WG_CONF"]:  # przy starcie: kontener wireguard czeka na ten plik
+        with app.app_context():
+            sv.write_wg_conf(dbm.get(), app.config["WG_CONF"])
     fails, fails_lock = {}, threading.Lock()  # nieudane logowania: klucz -> czasy prób (pamięć procesu)
 
     def q(sql, *a):
@@ -174,7 +178,12 @@ def create_app(test_config=None):
         for k, n, kind in cat.default_channels(model):
             q("INSERT INTO channels(device_id,key,name,kind) VALUES(?,?,?,?)", did, k, n, kind)
         commit()
+        wg_sync()
         return did
+
+    def wg_sync():
+        if app.config["WG_CONF"]:  # serwer WireGuard w stacku: nowy sterownik trafia do wg0.conf od razu
+            sv.write_wg_conf(dbm.get(), app.config["WG_CONF"])
 
     # ---------- publiczne ----------
     @app.get("/healthz")
@@ -767,7 +776,21 @@ def create_app(test_config=None):
                     return err(f"Niepoprawne pole {k}")
                 q("INSERT INTO config(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", k, str(v))
             commit()
+            wg_sync()
         return jsonify({k: sv.cfg(dbm.get(), k) for k in sv.DEFAULTS})
+
+    @app.get("/api/admin/devices/<int:did>/secrets")
+    @need("admin")
+    def admin_secrets(did):
+        d = q("SELECT * FROM devices WHERE id=?", did).fetchone()
+        if not d:
+            return err("Nie znaleziono", 404)
+        if d["tunnel"] == "wg" and not d["wg_pub"]:
+            q("UPDATE devices SET wg_priv=?, wg_pub=? WHERE id=?", *sv.wg_keypair(), did)
+            commit()
+            wg_sync()
+            d = q("SELECT * FROM devices WHERE id=?", did).fetchone()
+        return sv.esphome_secrets(d, dbm.get()), 200, {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"}
 
     @app.post("/api/admin/tick")
     @need("admin")
