@@ -1,3 +1,4 @@
+import math
 import os
 import re
 import secrets
@@ -601,6 +602,11 @@ def create_app(test_config=None):
               generate_password_hash("Rolnik12345!"), "farmer", fid)
         did = new_device("trs3", 1, "wg", "kurnik 1")
         q("UPDATE devices SET stage=3,online=1,last_seen=? WHERE id=?", datetime.now().isoformat(), did)
+        q("UPDATE farms SET lat=?, lon=? WHERE id=1", 50.669, 17.753)
+        for i in range(48, 0, -1):  # historia z ostatniej doby do wykresu
+            at = datetime.now() - timedelta(minutes=30 * i)
+            t = round(19 + 3 * math.sin((at.hour + at.minute / 60 - 9) / 24 * 2 * math.pi), 1)
+            q("INSERT INTO readings(device_id,t,h,at) VALUES(?,?,?,?)", did, t, round(70 - (t - 19) * 4), at.isoformat())
         q("INSERT INTO readings(device_id,t,h,at) VALUES(?,?,?,?)", did, 21.5, 58, datetime.now().isoformat())
         for k, n, kind in (("ch4", "Wentylator", "vent"), ("ch5", "Ogrzewanie", "heater"), ("ch6", "Grzałka wody", "water_heater")):
             q("UPDATE channels SET name=?,kind=? WHERE device_id=? AND key=?", n, kind, did, k)

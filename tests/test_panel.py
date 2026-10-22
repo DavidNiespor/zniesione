@@ -54,3 +54,13 @@ def test_old_database_is_migrated(tmp_path):
     row = sqlite3.connect(p).execute("SELECT mode, offset_min, duration_s FROM schedules").fetchone()
     assert row == ("time", 0, None)
     create_app({"DATABASE": str(p), "TESTING": True})  # drugi start nic nie psuje
+
+
+def test_seed_demo_has_location_and_day_of_readings(tmp_path):
+    a = create_app({"DATABASE": str(tmp_path / "s.db"), "TESTING": True})
+    assert a.test_cli_runner().invoke(args=["seed-demo"]).exit_code == 0
+    c = Client(a)
+    c.post("/api/auth/login", {"email": "rolnik@zniesione.test", "password": "Rolnik12345!"})
+    assert c.get("/api/my/farm").get_json()["lat"] is not None
+    did = c.get("/api/my/devices").get_json()[0]["id"]
+    assert len(c.get(f"/api/my/devices/{did}/readings?hours=24").get_json()) >= 40
