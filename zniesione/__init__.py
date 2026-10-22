@@ -2,10 +2,12 @@ import os
 import re
 import secrets
 import threading
+import time
 from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import Flask, g, jsonify, request, send_from_directory, session
+from flask.sessions import SecureCookieSessionInterface
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import catalog as cat
@@ -14,6 +16,7 @@ from . import services as sv
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 MODES, PICKUPS, DAYS = ("once", "weekly", "biweekly"), ("pickup", "delivery"), ("a", "w", "e")
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 
 
 def err(msg, code=400):
@@ -28,15 +31,26 @@ def integer(v, lo, hi):
     return isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
 
 
+class Session(SecureCookieSessionInterface):
+    def get_cookie_secure(self, app):
+        # Secure poza trybem testowym; wyjątek: uruchomienie lokalne po http://127.0.0.1 lub localhost
+        return app.config["SESSION_COOKIE_SECURE"] and request.host.rsplit(":", 1)[0] not in LOCAL_HOSTS
+
+
 def create_app(test_config=None):
     app = Flask(__name__)
     app.json.ensure_ascii = False
+    app.session_interface = Session()
     app.config.update(SECRET_KEY=os.environ.get("SECRET_KEY", "dev-change-me"),
                       DATABASE=os.environ.get("DATABASE", "zniesione.db"),
                       SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_HTTPONLY=True,
+                      SESSION_COOKIE_SECURE=not (test_config or {}).get("TESTING"),
+                      LOGIN_MAX_EMAIL=5, LOGIN_MAX_IP=20, LOGIN_WINDOW_S=600,
+                      TICK_S=float(os.environ.get("TICK_S", "2")),
                       SEND=sv.send_http, RUN_SCHEDULER=os.environ.get("RUN_SCHEDULER") == "1")
     app.config.update(test_config or {})
     dbm.init_app(app)
+    fails, fails_lock = {}, threading.Lock()  # nieudane logowania: klucz -> czasy prób (pamięć procesu)
 
     def q(sql, *a):
         return dbm.get().execute(sql, a)
@@ -45,7 +59,17 @@ def create_app(test_config=None):
         dbm.get().commit()
 
     def body():
-        return request.get_json(silent=True) or {}
+        b = request.get_json(silent=True)
+        return b if isinstance(b, dict) else {}
+
+    def login_blocked(keys, failed=False):
+        now, win = time.monotonic(), app.config["LOGIN_WINDOW_S"]
+        with fails_lock:
+            for k, _ in keys:
+                fails[k] = [t for t in fails.get(k, []) if now - t < win] + ([now] if failed else [])
+                if not fails[k]:
+                    del fails[k]
+            return any(len(fails.get(k, [])) >= lim for k, lim in keys)
 
     @app.before_request
     def csrf():  # własny nagłówek wymusza preflight CORS, więc strony trzecie nie wyślą żądania z sesją
@@ -174,9 +198,16 @@ def create_app(test_config=None):
     @app.post("/api/auth/login")
     def login():
         b = body()
-        u = q("SELECT * FROM users WHERE email=?", str(b.get("email", "")).strip().lower()).fetchone()
+        email = str(b.get("email", "")).strip().lower()
+        keys = [(("email", email), app.config["LOGIN_MAX_EMAIL"]), (("ip", request.remote_addr), app.config["LOGIN_MAX_IP"])]
+        if login_blocked(keys):
+            return err("Za dużo nieudanych prób logowania. Spróbuj ponownie za 10 minut.", 429)
+        u = q("SELECT * FROM users WHERE email=?", email).fetchone()
         if not u or not check_password_hash(u["pw"], str(b.get("password", ""))):
+            login_blocked(keys, failed=True)
             return err("Błędny e-mail lub hasło", 401)
+        with fails_lock:
+            fails.pop(("email", email), None)
         session.clear()
         session["uid"] = u["id"]
         return jsonify(id=u["id"], role=u["role"], farm_id=u["farm_id"])
@@ -579,7 +610,7 @@ def create_app(test_config=None):
     if app.config["RUN_SCHEDULER"]:
         def loop():
             ev = threading.Event()
-            while not ev.wait(60):
+            while not ev.wait(app.config["TICK_S"]):  # krótki obieg: impulsy drzwi trwają sekundy
                 try:
                     sv.tick(app)
                 except Exception:  # noqa: BLE001

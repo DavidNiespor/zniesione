@@ -1,4 +1,5 @@
 """API panelu rolnika: drzwi, harmonogramy (wschód, zachód, czas trwania), restart, dziennik, odczyty, uprawnienia."""
+import time
 from datetime import datetime, timedelta
 
 from conftest import Client, online_device
@@ -253,3 +254,48 @@ def test_readings_history_window_and_permissions(app, admin, farmer, farmer2):
     for bad in ("0", "169", "x"):
         assert c.get(f"/api/my/devices/{did}/readings?hours={bad}").status_code == 400
     assert farmer2[0].get(f"/api/my/devices/{did}/readings").status_code == 404
+
+
+def test_login_rate_limit_per_email_and_ip(app, farmer, anon):
+    bad = {"email": "a@x.pl", "password": "zle-haslo"}
+    for _ in range(5):
+        assert anon.post("/api/auth/login", bad).status_code == 401
+    r = anon.post("/api/auth/login", {"email": "a@x.pl", "password": "haslo12345"})
+    assert r.status_code == 429 and "Za dużo" in r.get_json()["error"]
+    assert anon.post("/api/auth/login", {"email": "admin@x.pl", "password": "adminadmin"}).status_code == 200
+    for i in range(14):                      # limit adresu IP: 20 nieudanych prób na różne e-maile
+        anon.post("/api/auth/login", {"email": f"x{i}@x.pl", "password": "zle"})
+    assert anon.post("/api/auth/login", {"email": "admin@x.pl", "password": "adminadmin"}).status_code == 200
+    anon.post("/api/auth/login", {"email": "y@x.pl", "password": "zle"})
+    assert anon.post("/api/auth/login", {"email": "admin@x.pl", "password": "adminadmin"}).status_code == 429
+
+
+def test_login_limit_window_expires(app, farmer, anon):
+    app.config["LOGIN_WINDOW_S"] = 0.3
+    nobody = {"email": "nikt@x.pl", "password": "zle"}   # brak konta: bez liczenia skrótu hasła, więc szybko
+    for _ in range(5):
+        anon.post("/api/auth/login", nobody)
+    assert anon.post("/api/auth/login", nobody).status_code == 429
+    time.sleep(0.4)
+    assert anon.post("/api/auth/login", nobody).status_code == 401
+
+
+def test_session_cookie_flags_outside_testing(tmp_path):
+    from werkzeug.security import generate_password_hash
+    a = create_app({"DATABASE": str(tmp_path / "c.db"), "SECRET_KEY": "x"})
+    with a.app_context():
+        dbm.get().execute("INSERT INTO users(email,pw,role) VALUES('admin@x.pl',?,'admin')", (generate_password_hash("adminadmin"),))
+        dbm.get().commit()
+    login = {"email": "admin@x.pl", "password": "adminadmin"}
+    hdr = {"X-Requested-With": "zniesione"}
+    r = a.test_client().post("/api/auth/login", json=login, headers=hdr, base_url="https://zniesione.pl")
+    ck = r.headers["Set-Cookie"]
+    assert "Secure" in ck and "SameSite=Lax" in ck and "HttpOnly" in ck
+    r = a.test_client().post("/api/auth/login", json=login, headers=hdr, base_url="http://127.0.0.1:5000")
+    assert "Secure" not in r.headers["Set-Cookie"]      # lokalne uruchomienie po http (README, Windows)
+
+
+def test_cookie_not_secure_in_testing_and_json_body_must_be_object(app, anon):
+    r = anon.post("/api/auth/login", {"email": "admin@x.pl", "password": "adminadmin"})
+    assert "Secure" not in r.headers["Set-Cookie"] and "SameSite=Lax" in r.headers["Set-Cookie"]
+    assert anon.post("/api/auth/login", [1, 2]).status_code == 401
