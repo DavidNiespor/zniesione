@@ -63,12 +63,13 @@ def create_app(test_config=None):
     def own_device(did):
         return q("SELECT * FROM devices WHERE id=? AND farm_id=?", did, g.user["farm_id"]).fetchone()
 
-    def dev_json(d):
+    def dev_json(d, admin=False):
         ch = [dict(c) for c in q("SELECT key,name,kind,state FROM channels WHERE device_id=?", d["id"])]
         r = q("SELECT t,h,at FROM readings WHERE device_id=? ORDER BY id DESC LIMIT 1", d["id"]).fetchone()
         return dict(id=d["id"], code=d["code"], model=d["model"], model_name=cat.MODELS[d["model"]]["name"],
                     tunnel=d["tunnel"], ip=d["ip"], stage=d["stage"], online=bool(d["online"]), addr=d["addr"],
-                    farm_id=d["farm_id"], channels=ch, reading=dict(r) if r else None)
+                    farm_id=d["farm_id"], channels=ch, reading=dict(r) if r else None,
+                    **({"api_key": d["api_key"]} if admin else {}))
 
     def new_device(model, farm_id, tunnel, addr):
         code = "kurnik-" + secrets.token_hex(2)
@@ -86,6 +87,10 @@ def create_app(test_config=None):
 
     @app.get("/")
     def index():
+        return send_from_directory(os.path.join(app.root_path, "static"), "app.html")
+
+    @app.get("/prototype")
+    def prototype():
         return send_from_directory(os.path.join(app.root_path, "static"), "prototype.html")
 
     @app.get("/api/catalog")
@@ -334,7 +339,7 @@ def create_app(test_config=None):
     @app.get("/api/admin/devices")
     @need("admin")
     def admin_devices():
-        return jsonify([dev_json(d) for d in q("SELECT * FROM devices ORDER BY id")])
+        return jsonify([dev_json(d, True) for d in q("SELECT * FROM devices ORDER BY id")])
 
     @app.post("/api/admin/devices")
     @need("admin")
@@ -363,7 +368,7 @@ def create_app(test_config=None):
                 return err("Etap można tylko zwiększać o jeden (maks. 3)")
             q("UPDATE devices SET stage=? WHERE id=?", b["stage"], did)
         commit()
-        return jsonify(dev_json(q("SELECT * FROM devices WHERE id=?", did).fetchone()))
+        return jsonify(dev_json(q("SELECT * FROM devices WHERE id=?", did).fetchone(), True))
 
     @app.route("/api/admin/config", methods=["GET", "PUT"])
     @need("admin")
@@ -393,6 +398,28 @@ def create_app(test_config=None):
         q("INSERT INTO users(email,pw,role) VALUES(?,?,?)", email.lower(), generate_password_hash(pw), "admin")
         commit()
         click.echo("Utworzono administratora")
+
+    @app.cli.command("seed-demo")
+    def seed_demo():
+        """Dane demonstracyjne do testów funkcjonalnych (hasła w README)."""
+        import click
+        if q("SELECT 1 FROM users").fetchone():
+            raise click.ClickException("Baza ma już użytkowników. Użyj pustej bazy.")
+        q("INSERT INTO users(email,pw,role) VALUES(?,?,?)", "admin@zniesione.test", generate_password_hash("Admin12345!"), "admin")
+        for i, (n, c, z, b, p, s, d) in enumerate([
+                ("Kurnik pod Lipą", "Dąbrowa", "45-120", "Ekologiczny", 14, 12, "Jaja z wolnego wybiegu, kury karmione własnym zbożem."),
+                ("Ekoferma Wierzba", "Brzezie", "45-300", "Wolny wybieg", 12, 30, "Sprzedaż w soboty."),
+                ("Gospodarstwo Sowa", "Lipowa", "46-010", "Ściółkowy", 10, 8, "")], 1):
+            fid = q("INSERT INTO farms(name,city,zip,breed,price10,stock,descr) VALUES(?,?,?,?,?,?,?)", n, c, z, b, p, s, d).lastrowid
+            q("INSERT INTO users(email,pw,role,farm_id) VALUES(?,?,?,?)", "rolnik@zniesione.test" if i == 1 else f"rolnik{i}@zniesione.test",
+              generate_password_hash("Rolnik12345!"), "farmer", fid)
+        did = new_device("trs3", 1, "wg", "kurnik 1")
+        q("UPDATE devices SET stage=3,online=1,last_seen=? WHERE id=?", datetime.now().isoformat(), did)
+        q("INSERT INTO readings(device_id,t,h,at) VALUES(?,?,?,?)", did, 21.5, 58, datetime.now().isoformat())
+        for k, n, kind in (("ch4", "Wentylator", "vent"), ("ch5", "Ogrzewanie", "heater"), ("ch6", "Grzałka wody", "water_heater")):
+            q("UPDATE channels SET name=?,kind=? WHERE device_id=? AND key=?", n, kind, did, k)
+        commit()
+        click.echo("Gotowe: admin@zniesione.test / Admin12345!  rolnik@zniesione.test / Rolnik12345!")
 
     if app.config["RUN_SCHEDULER"]:
         def loop():

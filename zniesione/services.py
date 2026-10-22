@@ -1,4 +1,5 @@
 """Logika bez zależności od Flaska: harmonogramy, termostat, YAML, adresy IP, silnik sterowania."""
+import os
 import re
 import urllib.request
 from datetime import datetime, timedelta
@@ -103,7 +104,8 @@ def send_http(dev, ch, state):
     """Wysyła polecenie do urządzenia przez tunel. Ścieżkę zweryfikuj z web_server ESPHome na sprzęcie."""
     if dev["model"] == "shp":
         return False, "MQTT jeszcze nie zaimplementowane"
-    url = f"http://{dev['ip']}/switch/{ch}/turn_{'on' if state else 'off'}"
+    base = os.environ.get("DEVICE_BASE") or f"http://{dev['ip']}"  # DEVICE_BASE: atrapa urządzenia w testach
+    url = f"{base}/switch/{ch}/turn_{'on' if state else 'off'}"
     try:
         urllib.request.urlopen(urllib.request.Request(url, data=b"", method="POST"), timeout=4)
         return True, None

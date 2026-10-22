@@ -1,0 +1,1 @@
+{ "name": "zniesione-e2e", "private": true, "dependencies": { "jsdom": "^24.0.0" } }
