@@ -23,6 +23,16 @@ CREATE TABLE IF NOT EXISTS log(id INTEGER PRIMARY KEY, device_id INTEGER NOT NUL
   src TEXT NOT NULL, ok INTEGER NOT NULL, at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS config(k TEXT PRIMARY KEY, v TEXT NOT NULL);
 """
+# Kolumny dodane po pierwszym wydaniu: dopisywane do istniejących baz przy starcie.
+COLUMNS = [
+    ("farms", "lat", "REAL"), ("farms", "lon", "REAL"),
+    ("devices", "door_run_s", "INTEGER NOT NULL DEFAULT 20"), ("devices", "door", "TEXT"),
+    ("devices", "door_want", "INTEGER"),
+    ("channels", "off_at", "TEXT"), ("channels", "want", "INTEGER"),
+    ("schedules", "mode", "TEXT NOT NULL DEFAULT 'time'"), ("schedules", "offset_min", "INTEGER NOT NULL DEFAULT 0"),
+    ("schedules", "off_mode", "TEXT NOT NULL DEFAULT 'time'"), ("schedules", "off_offset_min", "INTEGER NOT NULL DEFAULT 0"),
+    ("schedules", "duration_s", "INTEGER"),
+]
 
 
 def get():
@@ -39,5 +49,13 @@ def init_app(app):
         if d:
             d.close()
     with app.app_context():
-        get().executescript(SCHEMA)
-        get().commit()
+        db = get()
+        db.executescript(SCHEMA)
+        migrate(db)
+        db.commit()
+
+
+def migrate(db):
+    for table, col, ddl in COLUMNS:
+        if col not in {r[1] for r in db.execute(f"PRAGMA table_info({table})")}:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")

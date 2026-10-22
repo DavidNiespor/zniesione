@@ -20,6 +20,14 @@ def err(msg, code=400):
     return jsonify(error=msg), code
 
 
+def num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def integer(v, lo, hi):
+    return isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
+
+
 def create_app(test_config=None):
     app = Flask(__name__)
     app.json.ensure_ascii = False
@@ -95,8 +103,13 @@ def create_app(test_config=None):
 
     @app.get("/api/catalog")
     def catalog():
-        return jsonify([dict(id=k, name=v["name"], channels=v["channels"], tunnels=v["tunnels"])
+        return jsonify([dict(id=k, name=v["name"], channels=v["channels"], tunnels=v["tunnels"],
+                             cheapest=bool(v.get("cheapest")), default=k == cat.DEFAULT_MODEL)
                         for k, v in cat.MODELS.items()])
+
+    @app.get("/api/kinds")
+    def kinds():
+        return jsonify([dict(id=k, name=cat.KIND_NAMES[k]) for k in cat.KINDS])
 
     def farm_json(f):
         return dict(id=f["id"], name=f["name"], city=f["city"], zip=f["zip"], breed=f["breed"],
@@ -175,10 +188,10 @@ def create_app(test_config=None):
         return jsonify(id=g.user["id"], email=g.user["email"], role=g.user["role"], farm_id=g.user["farm_id"])
 
     # ---------- rolnik ----------
-    @app.put("/api/my/farm")
+    @app.route("/api/my/farm", methods=["GET", "PUT"])
     @need("farmer")
     def my_farm():
-        b, sets, vals = body(), [], []
+        b, sets, vals = (body() if request.method == "PUT" else {}), [], []
         for k, t in (("name", str), ("city", str), ("zip", str), ("breed", str), ("descr", str)):
             if k in b:
                 if not isinstance(b[k], t) or (k == "name" and not b[k].strip()):
@@ -189,10 +202,16 @@ def create_app(test_config=None):
                 if not isinstance(b[k], (int, float)) or isinstance(b[k], bool) or b[k] < 0:
                     return err(f"Niepoprawne pole {k}")
                 sets.append(f"{k}=?"), vals.append(b[k])
+        for k, lim in (("lat", 90), ("lon", 180)):  # położenie do wschodu i zachodu słońca, null czyści
+            if k in b:
+                if b[k] is not None and (not num(b[k]) or not -lim <= b[k] <= lim):
+                    return err(f"Niepoprawne pole {k}")
+                sets.append(f"{k}=?"), vals.append(b[k])
         if sets:
             q(f"UPDATE farms SET {','.join(sets)} WHERE id=?", *vals, g.user["farm_id"])
             commit()
-        return jsonify(farm_json(q("SELECT * FROM farms WHERE id=?", g.user["farm_id"]).fetchone()))
+        f = q("SELECT * FROM farms WHERE id=?", g.user["farm_id"]).fetchone()
+        return jsonify({**farm_json(f), "lat": f["lat"], "lon": f["lon"]})
 
     @app.get("/api/my/orders")
     @need("farmer")
@@ -222,7 +241,7 @@ def create_app(test_config=None):
     @need("farmer")
     def device_order():
         b = body()
-        m = cat.MODELS.get(b.get("model"))
+        m = cat.MODELS.get(b.get("model")) if isinstance(b.get("model"), str) else None
         if not m:
             return err("Można zamówić tylko sterowniki z katalogu operatora")
         tunnel = b.get("tunnel") or m["tunnels"][0]
@@ -345,7 +364,7 @@ def create_app(test_config=None):
     @need("admin")
     def admin_add_device():
         b = body()
-        m = cat.MODELS.get(b.get("model"))
+        m = cat.MODELS.get(b.get("model")) if isinstance(b.get("model"), str) else None
         if not m or not q("SELECT 1 FROM farms WHERE id=?", b.get("farm_id")).fetchone():
             return err("Niepoprawny model lub farma")
         tunnel = b.get("tunnel") or m["tunnels"][0]
