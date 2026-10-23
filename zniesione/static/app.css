@@ -227,3 +227,11 @@ ul.plain{list-style:none;padding:0;margin:.3rem 0}ul.plain li{margin:.35rem 0}
 .chore.done{border-color:var(--ok)}.chore .ti{font-size:1.8rem;width:2.2rem;text-align:center}
 .chore .tb{flex:1;min-width:10rem;display:flex;flex-direction:column;gap:.1rem}.chore .tb span{font-size:.9rem}
 .chore form.inl input{width:6.5rem;flex:none;min-width:0;min-height:44px}
+
+/* kamery i Home Assistant */
+.cams{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:.6rem;margin-bottom:.7rem}
+figure.cam{padding:.4rem}figure.cam img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:12px;display:block;background:var(--sf)}
+figure.cam figcaption{padding:.3rem .2rem 0}
+.camrow{display:flex;flex-wrap:wrap;gap:.8rem;border-top:1px solid var(--ln);padding:.8rem 0}.camrow:first-of-type{border-top:0}
+.camrow figure.cam{width:min(100%,240px);flex:none}.camrow .tb{flex:1;min-width:14rem;display:flex;flex-direction:column}
+.row.haent{grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));border-top:1px dashed var(--ln);padding-top:.3rem}

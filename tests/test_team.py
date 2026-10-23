@@ -37,3 +37,21 @@ def test_change_password(app, farmer):
     assert c.put("/api/my/password", {"old": "haslo12345", "new": "krotkie"}).status_code == 400
     assert c.put("/api/my/password", {"old": "haslo12345", "new": "nowehaslo1"}).status_code == 200
     assert Client(app).post("/api/auth/login", {"email": "a@x.pl", "password": "nowehaslo1"}).status_code == 200
+
+
+def test_author_tracking_does_not_lock_database_between_requests(app, farmer, tmp_path):
+    """Dwa równoległe zapytania (np. dwa podglądy kamer) zapisują do bazy: oznaczenie autora nie może trzymać blokady."""
+    import sqlite3
+    from zniesione import db as dbm
+    path = app.config["DATABASE"]
+    a, b = sqlite3.connect(path, timeout=0.3), sqlite3.connect(path, timeout=0.3)
+    try:
+        dbm.set_user(a, 1)
+        a.execute("SELECT * FROM farms").fetchall()          # zapytanie A czyta (np. czeka na kamerę)
+        dbm.set_user(b, 1)
+        b.execute("UPDATE farms SET remind_sent=''")         # zapytanie B w tym czasie zapisuje
+        b.commit()
+        a.execute("UPDATE farms SET remind_sent=''")
+        a.commit()
+    finally:
+        a.close(), b.close()

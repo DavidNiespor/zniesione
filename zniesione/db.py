@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS archive_days(id INTEGER PRIMARY KEY, farm_id INTEGER 
   revenue REAL NOT NULL DEFAULT 0, expense REAL NOT NULL DEFAULT 0, expense_type TEXT NOT NULL DEFAULT '', paid_out INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS chores(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, at TEXT NOT NULL,
   amount REAL, note TEXT NOT NULL DEFAULT '', user_id INTEGER);
+CREATE TABLE IF NOT EXISTS cameras(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, building_id INTEGER, name TEXT NOT NULL,
+  ip TEXT UNIQUE NOT NULL, wg_priv TEXT NOT NULL, wg_pub TEXT NOT NULL, cam_user TEXT NOT NULL DEFAULT 'thingino',
+  cam_pass TEXT NOT NULL DEFAULT 'thingino', created TEXT NOT NULL, last_ok TEXT);
 CREATE TABLE IF NOT EXISTS buildings(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, name TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS kb(id INTEGER PRIMARY KEY, title TEXT NOT NULL, category TEXT NOT NULL DEFAULT '', body TEXT NOT NULL,
   published INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL, updated TEXT NOT NULL);
@@ -91,6 +94,9 @@ COLUMNS = [
     ("flocks", "building_id", "INTEGER"), ("devices", "building_id", "INTEGER"),
     ("orders", "due_date", "TEXT NOT NULL DEFAULT ''"),
     ("farms", "chores", "TEXT NOT NULL DEFAULT ''"), ("farms", "chores_amounts", "INTEGER NOT NULL DEFAULT 1"),  # lista obowiązków (pusta = wyłączona)
+    ("farms", "ha_enabled", "INTEGER NOT NULL DEFAULT 0"),  # sterowniki z Home Assistant (włącza administrator)
+    ("devices", "ha_url", "TEXT NOT NULL DEFAULT ''"), ("devices", "ha_token", "TEXT NOT NULL DEFAULT ''"),
+    ("devices", "ha_temp", "TEXT NOT NULL DEFAULT ''"), ("devices", "ha_hum", "TEXT NOT NULL DEFAULT ''"),
     ("farms", "archive_name", "TEXT NOT NULL DEFAULT ''"), ("farms", "archive_at", "TEXT NOT NULL DEFAULT ''"),
     ("eggs", "user_id", "INTEGER"), ("sales", "user_id", "INTEGER"), ("ledger", "user_id", "INTEGER"),
     ("feed_moves", "user_id", "INTEGER"), ("mixes", "user_id", "INTEGER"), ("expenses", "user_id", "INTEGER"),
@@ -112,6 +118,7 @@ def set_user(db, uid):
     for t in AUTHORED:
         db.execute(f"CREATE TEMP TRIGGER IF NOT EXISTS {t}_author AFTER INSERT ON main.{t} WHEN NEW.user_id IS NULL "
                    f"BEGIN UPDATE {t} SET user_id=(SELECT uid FROM cur_user) WHERE id=NEW.id; END")
+    db.commit()  # zapis w tabeli tymczasowej otwiera transakcję: bez zamknięcia trzymałaby blokadę bazy przez całe zapytanie
 
 
 def by_sql(alias):

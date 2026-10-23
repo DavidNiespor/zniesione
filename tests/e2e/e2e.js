@@ -81,6 +81,7 @@ async function page() {
   // magazyn demo: 180 szt. (12 opak. w sklepie, 30 szt. rezerwy) i 24 szt. do sortowania; zamówienie Anny (3 opak.) wydane -> 150 szt.
   p.setv(p.$("#f-zbior"), "eggs", "50"); p.submit(p.$("#f-zbior"));
   ok(await p.wait(() => /Zapisano zbiór: 50 szt\. Do sortowania: 74 szt\./.test(p.toast())), "zbiór na sztuki trafia do sortowania");
+  await p.wait(() => p.$("form[data-f=sort]") && /Do sortowania:\s*74 szt\./.test(p.$("form[data-f=sort]").textContent));  // po odświeżeniu widoku
   let so = p.$("form[data-f=sort]");
   ok(so.elements.good.value === "74" && /Do sortowania:\s*74 szt\./.test(so.textContent), "sortowanie: wszystkie do posortowania podpowiedziane jako dobre");
   p.setv(so, "good", "70"); p.setv(so, "dirty", "3"); p.setv(so, "damaged", "1"); so.elements.good.dispatchEvent(new p.w.Event("input", { bubbles: true }));
@@ -288,6 +289,17 @@ async function page() {
   ok(await p.wait(() => /nie obsługuje wybranego połączenia/.test(p.toast())), "T-Relay z Tailscale odrzucony");
   p.setv(df, "tunnel", ""); p.submit(df);
   ok(await p.wait(() => p.$$("[data-dev]").length === 2), "zamówienie sterownika T-Relay");
+  const camf = p.$("form[data-f=camera][data-id='']"); p.setv(camf, "name", "Kurnik od środka"); p.submit(camf);
+  ok(await p.wait(() => /Dodano kamerę/.test(p.toast()) && p.$("[data-camera]") && p.$("[data-camera] [data-act=textload]")), "kamera Thingino: dodanie i konfiguracja WireGuard");
+  p.click(p.$("[data-camera] [data-act=textload]"));
+  ok(await p.wait(() => /\[Interface\][\s\S]*PersistentKeepalive = 25/.test(p.$("[data-camera] pre").textContent)), "kamera: konfiguracja WireGuard do skopiowania");
+  const df2 = p.$("form[data-f=devorder]"); p.setv(df2, "addr", "Do usunięcia"); p.submit(df2);
+  await p.wait(() => p.$$("[data-dev]").length === 3);
+  const lastDev = p.$$("[data-dev]").pop(), del = lastDev.querySelector("[data-act=devdel]");
+  ok(/Anuluj zamówienie i usuń/.test(del.textContent), "sterownik w drodze: anulowanie i usunięcie");
+  p.click(del); p.click(del);
+  ok(await p.wait(() => /Sterownik usunięty/.test(p.toast()) && p.$$("[data-dev]").length === 2), "usunięcie sterownika");
+  ok(!/Sterownik z Home Assistant/.test(p.text()), "Home Assistant ukryty, dopóki admin go nie włączy");
 
   // ---- admin ----
   await p.nav("ustawienia");
@@ -337,6 +349,10 @@ async function page() {
   ok(await p.wait(() => /nie jest skonfigurowane/.test(p.toast())), "bez kontenera budującego: czytelny komunikat");
   await p.clickBtn("Import z e-kurnika");
   ok(await p.wait(() => p.$("form[data-f=ekupload]")), "zakładka importu z e-kurnika");
+  await p.clickBtn("Farmy");
+  ok(await p.wait(() => p.$$("input.farmha").length >= 3), "admin: farmy z przełącznikiem Home Assistant");
+  const fh = p.$("input.farmha"); fh.checked = true; p.change(fh);
+  ok(await p.wait(() => /Home Assistant włączony dla farmy/.test(p.toast())), "admin włącza Home Assistant dla farmy");
   await p.clickBtn("Sterowniki"); await p.wait(() => p.$$("[data-dev]").length === 2);
   const rd = p.$$("form[data-f=reading]")[0]; p.setv(rd, "t", "28"); p.setv(rd, "h", "55"); p.submit(rd);
   ok(await p.wait(() => /Odczyt wysłany/.test(p.toast())), "symulowany odczyt 28 °C wysłany");

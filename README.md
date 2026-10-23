@@ -68,6 +68,9 @@ Panel rolnika (telefon jako pierwszy, dolne menu Start, Jaja, Sterowanie, Zamów
 - **Lista obowiązków na Starcie** (opcjonalna, włączana w Ustawieniach): pasza uzupełniona, woda uzupełniona, jajka zebrane
   (odhacza się samo po wpisaniu zbioru), kury policzone (z porównaniem do liczby kur w stadach). Każde odhaczenie zapisuje godzinę
   i osobę; opcjonalnie ilość paszy (kg) i wody (l), z których Analityka liczy zużycie dziennie i na kurę.
+- **Sterowniki**: usuwanie (rolnik i admin); dla farm wybranych przez admina **własny sterownik z Home Assistant**
+  (REST API HA przez WireGuard albo adres HA, wybór encji i czujników, harmonogramy i termostat jak w sterownikach z oferty);
+  **kamery Thingino** przez WireGuard z podglądem zdjęcia co 10 s w Sterowaniu i na Starcie.
 - **Archiwum** dawnego arkusza Google (CSV): podgląd tylko do odczytu, z wykresami miesięcznymi, sprzedażą wg ceny, wydatkami i tabelą dzień po dniu.
 - **Zamówienia** z **kalendarzem** miesiąca (zamówienia ze sklepu z terminem odbioru, dostawy stałych klientów, sprzedaż),
   **Oferta** (cena, opis, położenie), **Sterowniki** (zamawianie, etapy dostawy), **Baza wiedzy**.
@@ -182,8 +185,8 @@ Scenariusze do przejścia ręcznie (najlepiej na telefonie lub w trybie telefonu
 9. Rolnik, Więcej, Sterowniki: T-Relay jest domyślny i oznaczony jako najtańszy; T-Relay z Tailscale zostaje odrzucony.
 
 ## Testy automatyczne
-    python -m pytest -q                                  # 115 testów API i logiki
-    cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 128 kroków przez interfejs (jsdom), każdy system
+    python -m pytest -q                                  # 122 testy API i logiki
+    cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 135 kroków przez interfejs (jsdom), każdy system
 `run.js` zakłada bazę w katalogu tymczasowym, uruchamia atrapę urządzenia (port 9123) i serwer Flaska (port 8765);
 porty i interpreter zmienisz zmiennymi `DEV_PORT`, `WEB_PORT`, `PYTHON`. `tests/e2e/run.sh` tylko wywołuje `run.js`.
 Test e2e nie zastępuje sprawdzenia w prawdziwej przeglądarce na telefonie.

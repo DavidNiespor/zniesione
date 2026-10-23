@@ -26,6 +26,7 @@ from . import clients
 from . import ekurnik
 from . import farmbook
 from . import feed
+from . import integrations
 from . import photos
 from . import team
 from . import services as sv
@@ -118,7 +119,7 @@ def create_app(test_config=None):
                       MAIL_FROM=os.environ.get("MAIL_FROM", ""), MAIL=farmbook.send_mail,
                       BUILDER_URL=os.environ.get("BUILDER_URL", ""), BUILDER_TOKEN=os.environ.get("BUILDER_TOKEN", ""),
                       BUILDER_CALL=sv.builder_call, MAX_CONTENT_LENGTH=64 * 1024 * 1024,
-                      SEND=sv.send_http, RUN_SCHEDULER=os.environ.get("RUN_SCHEDULER") == "1")
+                      SEND=sv.send_http, HA_CALL=sv.ha_call, CAM_FETCH=sv.cam_fetch, RUN_SCHEDULER=os.environ.get("RUN_SCHEDULER") == "1")
     app.config.update(test_config or {})
     if app.config["PROXY_COUNT"]:  # za odwrotnym proxy lub Cloudflare Tunnel: adres klienta z X-Forwarded-For
         n = app.config["PROXY_COUNT"]
@@ -203,7 +204,9 @@ def create_app(test_config=None):
                     **({"api_key": d["api_key"], "sensor": d["sensor"], "sensor_pins": json.loads(d["sensor_pins"] or "{}"),
                         "wifi_ssid": d["wifi_ssid"], "wifi_set": bool(d["wifi_password"]), "fw_job": d["fw_job"],
                         "chip": "ESP32-S3" if "s3" in cat.MODELS[d["model"]].get("board", "") else "ESP32",
-                        "firmware": not cat.MODELS[d["model"]].get("shelly") and not cat.MODELS[d["model"]].get("eth")} if admin else {}))
+                        "firmware": not any(cat.MODELS[d["model"]].get(k) for k in ("shelly", "eth", "own"))} if admin else {}),
+                    **({"ha_url": d["ha_url"], "ha_token_set": bool(d["ha_token"]), "ha_temp": d["ha_temp"], "ha_hum": d["ha_hum"]}
+                       if d["model"] == "ha" else {}))
 
     def new_device(model, farm_id, tunnel, addr):
         code = "kurnik-" + secrets.token_hex(2)
@@ -248,7 +251,7 @@ def create_app(test_config=None):
     def catalog():
         return jsonify([dict(id=k, name=v["name"], channels=v["channels"], tunnels=v["tunnels"],
                              cheapest=bool(v.get("cheapest")), default=k == cat.DEFAULT_MODEL)
-                        for k, v in cat.MODELS.items()])
+                        for k, v in cat.MODELS.items() if not v.get("own")])  # własne (Home Assistant) nie są w ofercie
 
     @app.get("/api/kinds")
     def kinds():
@@ -339,8 +342,9 @@ def create_app(test_config=None):
     @app.get("/api/me")
     @need()
     def me():
+        f = q("SELECT ha_enabled FROM farms WHERE id=?", g.user["farm_id"]).fetchone() if g.user["farm_id"] else None
         return jsonify(id=g.user["id"], email=g.user["email"], role=g.user["role"], farm_id=g.user["farm_id"],
-                       name=g.user["name"] or g.user["email"].split("@")[0], owner=bool(g.user["owner"]))
+                       name=g.user["name"] or g.user["email"].split("@")[0], owner=bool(g.user["owner"]), ha=bool(f and f["ha_enabled"]))
 
     # ---------- rolnik ----------
     @app.route("/api/my/farm", methods=["GET", "PUT"])
@@ -398,7 +402,7 @@ def create_app(test_config=None):
     def device_order():
         b = body()
         m = cat.MODELS.get(b.get("model")) if isinstance(b.get("model"), str) else None
-        if not m:
+        if not m or m.get("own"):
             return err("Można zamówić tylko sterowniki z katalogu operatora")
         tunnel = b.get("tunnel") or m["tunnels"][0]
         if tunnel not in m["tunnels"]:
@@ -683,6 +687,7 @@ def create_app(test_config=None):
     shop_extra = photos.register(app, need, q, commit, body, err)
     archive.register(app, need, q, commit, err)
     chores.register(app, need, q, commit, body, err, integer)
+    integrations.register(app, need, q, commit, body, err, integer, dev_json, wg_sync, own_device)
     team.register(app, need, q, commit, body, err)
     analytics.register(app, need, q, commit, body, err)
 
@@ -781,7 +786,7 @@ def create_app(test_config=None):
     def admin_add_device():
         b = body()
         m = cat.MODELS.get(b.get("model")) if isinstance(b.get("model"), str) else None
-        if not m or not q("SELECT 1 FROM farms WHERE id=?", b.get("farm_id")).fetchone():
+        if not m or m.get("own") or not q("SELECT 1 FROM farms WHERE id=?", b.get("farm_id")).fetchone():
             return err("Niepoprawny model lub farma")
         tunnel = b.get("tunnel") or m["tunnels"][0]
         if tunnel not in m["tunnels"]:

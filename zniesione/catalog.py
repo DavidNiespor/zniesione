@@ -8,6 +8,8 @@ MODELS = {
     "wsp": dict(name="Waveshare ESP32-S3-POE-ETH-8DI-8RO-C", channels=8, board="esp32-s3-devkitc-1",
                 tunnels=("wg", "ts"), eth=True),
     "shp": dict(name="Shelly Pro 4PM", channels=4, tunnels=("mqtt",), shelly=True),
+    # własny sterownik spięty z Home Assistant: nie ma go w ofercie, włącza go administrator dla wybranej farmy
+    "ha": dict(name="Home Assistant (własny sterownik)", channels=0, tunnels=("wg", "url"), own=True),
 }
 KINDS = ("light", "door_open", "door_close", "vent", "heater", "water_heater",
          "valve", "pump", "feeder", "other")

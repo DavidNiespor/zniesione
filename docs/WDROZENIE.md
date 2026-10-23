@@ -147,6 +147,34 @@ ale nie w pliku `.db` z kopii w panelu admina.
    LilyGO T-Relay nie ma USB: potrzebny jest adapter USB-UART (np. T-U2T). Możesz też pobrać plik `.bin` i wgrać go innym narzędziem.
 4. Gdy sterownik połączy się z portalem przez WireGuard (status „online”), kolejne wersje wgrasz przyciskiem **Wgraj przez sieć (OTA)**.
 
+Sterownik usuwa rolnik (Sterowniki → **Usuń sterownik z portalu**) albo administrator. Usunięcie kasuje harmonogramy, historię
+i odczyty sterownika oraz jego klucz z serwera WireGuard.
+
+### Sterownik już spięty z Home Assistant
+
+Dla wybranych farm (np. konta d.niespor@gmail.com) administrator włącza to w **Administrator → Farmy → Home Assistant**
+albo poleceniem `docker compose exec zniesione flask --app zniesione farm-ha --email d.niespor@gmail.com`.
+Rolnik dodaje wtedy w Sterownikach **Sterownik z Home Assistant**:
+
+1. W Home Assistant: Profil → Bezpieczeństwo → **Tokeny długoterminowe** → utwórz token i wklej go w portalu.
+2. Połączenie (zalecane) **przez WireGuard**: portal pokaże konfigurację WireGuard dla Home Assistant (dodatek WireGuard Client
+   lub inny klient). Portal łączy się z HA pod adresem z linii `Address`, port 8123. Druga możliwość: adres HA w internecie
+   (np. Nabu Casa albo tunel Cloudflare); adresy wewnętrzne serwera i lokalne są odrzucane.
+3. **Wybierz encje z Home Assistant**: zaznacz przełączniki (switch, light, input_boolean, fan), nadaj nazwy i rodzaje
+   (światło, drzwi: otwórz / zamknij, wentylacja...) oraz czujniki temperatury i wilgotności.
+
+Portal steruje encjami przez REST API HA (`/api/services/<domena>/turn_on|turn_off`), a co minutę sprawdza połączenie
+i odczytuje czujniki. Harmonogramy, termostat i impulsy drzwi działają jak w sterownikach z oferty, ale bez internetu
+sterownik nie dostanie poleceń: zabezpieczenie drzwi warto mieć też jako automatyzację w samym HA.
+
+### Kamery Thingino
+
+Sterowniki → **Kamery → Dodaj kamerę** (nazwa, budynek, login i hasło kamery; domyślnie thingino / thingino).
+Portal pokaże standardową konfigurację WireGuard (klucz prywatny, adres w tunelu, klucz serwera, Endpoint, AllowedIPs):
+wpisz ją w ustawieniach WireGuard w panelu kamery Thingino. Po połączeniu portal pobiera zdjęcie z `http://<adres>/image.jpg`
+(logowanie Basic) i pokazuje je w Sterowaniu i na Starcie, odświeżane co 10 s. Wideo (RTSP, `rtsp://login:hasło@<adres>/ch0`)
+jest dostępne tylko w tunelu; portal go nie przesyła.
+
 ## 8. Aplikacja na telefonie
 
 Na telefonie z Androidem (Chrome): **Ustawienia → Dodaj jako aplikację** albo menu przeglądarki → „Zainstaluj aplikację”.

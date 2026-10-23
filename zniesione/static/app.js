@@ -92,7 +92,7 @@ const VIEWS = {
   zamowienia: {fn: vOrders, role: 'farmer'}, wiecej: {fn: vMore, role: 'farmer'}, klienci: {fn: vClients, role: 'farmer'}, sprzedaz: {fn: vSale, role: 'farmer'},
   oferta: {fn: vOffer, role: 'farmer'}, stado: {fn: vFlock, role: 'farmer'}, sterowniki: {fn: vDevices, role: 'farmer'},
   raporty: {fn: vReports, role: 'farmer'}, analityka: {fn: vAnalytics, role: 'farmer'}, archiwum: {fn: vArchive, role: 'farmer'}, ustawienia: {fn: vSettings, role: 'farmer'}, wiedza: {fn: vKb, role: 'farmer'}, wydatki: {fn: vExpenses, role: 'farmer'}, pasza: {fn: vFeed, role: 'farmer'}, 'admin-import': {fn: vAdminImport, role: 'admin'}, wyposazenie: {fn: vEquipment, role: 'farmer'},
-  admin: {fn: () => vAdmin('dev'), role: 'admin'}, 'admin-cfg': {fn: () => vAdmin('cfg'), role: 'admin'}, 'admin-tools': {fn: () => vAdmin('tools'), role: 'admin'},
+  admin: {fn: () => vAdmin('dev'), role: 'admin'}, 'admin-cfg': {fn: () => vAdmin('cfg'), role: 'admin'}, 'admin-tools': {fn: () => vAdmin('tools'), role: 'admin'}, 'admin-farms': {fn: () => vAdmin('farms'), role: 'admin'},
   'admin-kb': {fn: vAdminKb, role: 'admin'},
 };
 
@@ -226,6 +226,7 @@ async function tickLive() {
   if (document.hidden || !me || me.role !== 'farmer' || !v || !v.live) return;
   await refreshDevices();
   $$('[data-log]').forEach(e => reloadLog(+e.dataset.log));
+  $$('img[data-cam]').forEach(i => { i.src = i.dataset.cam + '?t=' + Date.now() });  // kamery: nowe zdjęcie co obieg (10 s)
   if (++liveN % 6 === 0) $$('[data-charts]').forEach(e => reloadCharts(+e.dataset.charts));
 }
 
@@ -262,8 +263,8 @@ async function choresReload(msg, r) {
   if (ch.ok && box) box.outerHTML = choresCard(ch.data);
 }
 async function vStart() {
-  const [orders, devs, farm, fin, subs, eq, eg, ch] = await Promise.all([load('/api/my/orders'), load('/api/my/devices'), load('/api/my/farm'),
-    load('/api/my/finance?days=1'), load('/api/my/subscriptions'), load('/api/my/equipment'), load('/api/my/eggs?days=1'), load('/api/my/chores')]);
+  const [orders, devs, farm, fin, subs, eq, eg, ch, cams] = await Promise.all([load('/api/my/orders'), load('/api/my/devices'), load('/api/my/farm'),
+    load('/api/my/finance?days=1'), load('/api/my/subscriptions'), load('/api/my/equipment'), load('/api/my/eggs?days=1'), load('/api/my/chores'), load('/api/my/cameras')]);
   const due = subs.filter(x => x.due), checks = eq.filter(x => x.check_due);
   devs.forEach(d => DEV[d.id] = d);
   const pend = orders.filter(o => o.status === 'pending').length, h = new Date().getHours();
@@ -285,7 +286,7 @@ async function vStart() {
     ${ch.kinds.length ? choresCard(ch) : dismissed('chores') ? '' : `<section class="card"><h2>✅ Lista obowiązków</h2>
       <p class="mu">Odhaczaj codziennie paszę, wodę, zbiór jaj i liczenie kur: portal zapisze godzinę i kto to zrobił, a ilości paszy i wody pokaże w Analityce.</p>
       <div class="actions"><button class="pri" data-act="go" data-v="ustawienia">Włącz w Ustawieniach</button><button class="ghost" data-act="dismiss" data-v="chores">Nie teraz</button></div></section>`}
-    <section class="card"><div class="dev-h"><h2>🐔 Stan kurnika</h2>${d ? statusBadge(d) : ''}</div>${coop}</section>
+    <section class="card"><div class="dev-h"><h2>🐔 Stan kurnika</h2>${d ? statusBadge(d) : ''}</div>${cams.length ? `<div class="cams">${cams.map(c => camImg(c)).join('')}</div>` : ''}${coop}</section>
     ${due.length || checks.length ? `<section class="card"><h2>🔔 Do zrobienia</h2><ul class="list">${due.map(x => `<li><span class="ti" aria-hidden="true">🔁</span><div class="tb">
       <b>${esc(x.client_name)}: ${x.eggs} szt.</b><span class="mu">stały klient, dostawa do wydania</span></div><button class="pri sm" data-act="go" data-v="sprzedaz/sub-${x.id}">Wydaj</button></li>`).join('')}
       ${checks.map(x => `<li><span class="ti" aria-hidden="true">🧰</span><div class="tb"><b>${esc(x.name)}</b><span class="mu">przegląd ${new Date(x.next_check).toLocaleDateString('pl-PL')}</span></div>
@@ -997,8 +998,54 @@ async function vSettings() {
 const steps = s => `<ol class="steps" aria-label="Etap: ${STAGES[s]}">${STAGES.map((t, i) => `<li class="${i <= s ? 'done' : ''}"${i === s ? ' aria-current="step"' : ''}>${t}</li>`).join('')}</ol>`;
 const yamlBlock = d => `<details data-yamlbox="${d.id}"><summary data-act="yaml" data-id="${d.id}">Konfiguracja ESPHome</summary><p class="mu">Dla instalatora: wgraj ją do sterownika w ESPHome.</p>
   <pre data-yaml="${d.id}">Ładuję…</pre><button data-act="copy" data-id="${d.id}">📋 Kopiuj</button></details>`;
+// plik tekstowy (konfiguracja WireGuard) wczytywany po rozwinięciu, z przyciskiem kopiowania
+const textBox = (key, url, label, help) => `<details><summary data-act="textload" data-id="${key}" data-url="${url}">${label}</summary>${help}
+  <pre data-yaml="${key}">Ładuję…</pre><button data-act="copy" data-id="${key}">📋 Kopiuj</button></details>`;
+const delBtn = (act, id, label) => `<div class="actions"><button class="ghost danger sm" data-act="${act}" data-id="${id}">${label}</button></div>`;
+const WG_HELP = `<p class="mu">Standardowa konfiguracja WireGuard (klucz prywatny, adres w tunelu, serwer portalu). Wpisz te wartości w ustawieniach WireGuard
+  urządzenia albo wgraj jako plik .conf. Klucz prywatny jest tylko dla tego urządzenia: nie udostępniaj go.</p>`;
+function haCard(d, bs) {
+  return `<section class="card" data-dev="${d.id}"><div class="dev-h"><div><h2>🏠 ${esc(title(d))}</h2><p class="mu">Home Assistant · ${d.tunnel === 'wg'
+    ? `przez WireGuard (adres ${esc(d.ip)}:8123)` : esc(d.ha_url)} · ${d.channels.length} encji${d.ha_temp ? ' · czujnik temperatury' : ''}</p></div>${statusBadge(d)}</div>
+    ${d.tunnel === 'wg' ? textBox('hawg' + d.id, `/api/my/devices/${d.id}/ha/wireguard`, '🔐 Konfiguracja WireGuard dla Home Assistant',
+      WG_HELP + '<p class="mu">W Home Assistant: dodatek WireGuard Client (lub inny klient WireGuard) z tymi wartościami. Portal łączy się z HA pod adresem z linii Address, port 8123.</p>') : ''}
+    <div class="actions"><button class="pri" data-act="haent" data-id="${d.id}">Wybierz encje z Home Assistant</button>${d.channels.length ? '<button data-act="go" data-v="sterowanie">Przejdź do sterowania</button>' : ''}</div>
+    <div data-haent="${d.id}"></div>
+    ${bs.length ? `<label for="db${d.id}">Budynek</label><select id="db${d.id}" class="devbld" data-id="${d.id}"><option value="">— bez budynku —</option>${bs.map(b =>
+      `<option value="${b.id}"${d.building_id === b.id ? ' selected' : ''}>${esc(b.name)}</option>`).join('')}</select>` : ''}
+    <details><summary>Zmień token${d.tunnel === 'url' ? ' lub adres' : ''}</summary><form data-f="hapatch" data-id="${d.id}">
+      ${d.tunnel === 'url' ? `<label for="hu${d.id}">Adres Home Assistant</label><input id="hu${d.id}" name="url" value="${esc(d.ha_url)}">` : ''}
+      <label for="ht${d.id}">Nowy token długoterminowy</label><input id="ht${d.id}" name="token" type="password" autocomplete="off">
+      <div class="actions"><button>Zapisz</button></div></form></details>
+    ${delBtn('devdel', d.id, 'Usuń sterownik z portalu')}</section>`;
+}
+function haGuess(x) {  // rodzaj z nazwy encji, do zmiany w formularzu
+  const t = (x.entity_id + ' ' + x.name).toLowerCase();
+  return /otw|open/.test(t) ? 'door_open' : /zamk|close/.test(t) ? 'door_close' : /wiat|lamp|light/.test(t) || t.startsWith('light.') ? 'light'
+    : /went|wiatrak/.test(t) || t.startsWith('fan.') ? 'vent' : /grza|ogrzew|heat/.test(t) ? 'heater' : /pomp/.test(t) ? 'pump' : 'other';
+}
+function haEntForm(d, e) {
+  const cur = Object.fromEntries(d.channels.map(c => [c.key, c])), kinds = Object.keys(KIND);
+  return `<form data-f="hachan" data-id="${d.id}"><fieldset><legend>Przełączniki do sterowania</legend>${e.switches.map((x, i) => `<div class="row haent">
+    <label class="chk"><input type="checkbox" name="on_${i}" ${cur[x.entity_id] ? 'checked' : ''}> <span><b>${esc(x.name)}</b><br><span class="mu">${esc(x.entity_id)} · ${esc(x.state)}</span></span></label>
+    <input type="hidden" name="ent_${i}" value="${esc(x.entity_id)}">
+    <div><label for="hn${d.id}_${i}">Nazwa w portalu</label><input id="hn${d.id}_${i}" name="name_${i}" maxlength="60" value="${esc(cur[x.entity_id] ? cur[x.entity_id].name : x.name.slice(0, 60))}"></div>
+    <div><label for="hk${d.id}_${i}">Rodzaj</label><select id="hk${d.id}_${i}" name="kind_${i}">${kinds.map(k => `<option value="${k}"${(cur[x.entity_id] ? cur[x.entity_id].kind : haGuess(x)) === k ? ' selected' : ''}>${esc(kname(k))}</option>`).join('')}</select></div></div>`).join('')
+    || '<p class="mu">Home Assistant nie ma encji switch, light, input_boolean ani fan.</p>'}</fieldset>
+    <div class="row">${[['temp', 't', 'Czujnik temperatury', d.ha_temp], ['hum', 'h', 'Czujnik wilgotności', d.ha_hum]].map(([n, k, l, v]) => `<div><label for="hs${n}${d.id}">${l}</label>
+      <select id="hs${n}${d.id}" name="${n}"><option value="">— brak —</option>${e.sensors.filter(x => x.kind === k).map(x => `<option value="${esc(x.entity_id)}"${x.entity_id === v ? ' selected' : ''}>${esc(x.name)} (${esc(x.state)} ${esc(x.unit)})</option>`).join('')}</select></div>`).join('')}</div>
+    <p class="mu">Drzwi: zaznacz dwa przełączniki i ustaw rodzaj „Drzwi: otwórz” i „Drzwi: zamknij”, portal włączy je impulsem jak w sterownikach z oferty.</p>
+    <div class="actions"><button class="pri">Zapisz encje</button></div></form>`;
+}
+const camForm = (bs, c) => `<form data-f="camera" data-id="${c ? c.id : ''}"><div class="row"><div><label for="cn${c ? c.id : ''}">Nazwa</label><input id="cn${c ? c.id : ''}" name="name" required maxlength="60" value="${c ? esc(c.name) : ''}" placeholder="np. Kurnik od środka"></div>
+  ${bs.length ? `<div><label for="cb${c ? c.id : ''}">Budynek</label><select id="cb${c ? c.id : ''}" name="building_id"><option value="">— bez budynku —</option>${bs.map(b => `<option value="${b.id}"${c && c.building_id === b.id ? ' selected' : ''}>${esc(b.name)}</option>`).join('')}</select></div>` : ''}</div>
+  <div class="row"><div><label for="cu${c ? c.id : ''}">Login kamery</label><input id="cu${c ? c.id : ''}" name="user" maxlength="64" value="${c ? esc(c.user) : 'thingino'}" autocomplete="off"></div>
+  <div><label for="cp${c ? c.id : ''}">Hasło kamery${c ? ' (puste: bez zmian)' : ''}</label><input id="cp${c ? c.id : ''}" name="password" type="password" maxlength="64" autocomplete="new-password" placeholder="${c ? '' : 'domyślnie thingino'}"></div></div>
+  <div class="actions"><button class="pri">${c ? 'Zapisz kamerę' : 'Dodaj kamerę'}</button></div></form>`;
+const camImg = (c, big) => `<figure class="cam${big ? ' big' : ''}"><a href="${c.snapshot}" target="_blank" rel="noopener"><img data-cam="${c.snapshot}" src="${c.snapshot}?t=${Date.now()}" alt="Kamera: ${esc(c.name)}"></a>
+  <figcaption>📷 ${esc(c.name)} <span class="mu" data-camerr></span></figcaption></figure>`;
 async function vDevices() {
-  const [devs, ct, bs] = await Promise.all([load('/api/my/devices'), load('/api/catalog'), load('/api/my/buildings')]);
+  const [devs, ct, bs, cams] = await Promise.all([load('/api/my/devices'), load('/api/catalog'), load('/api/my/buildings'), load('/api/my/cameras')]);
   const def = ct.find(m => m.default) || ct[0];
   return `<h1>Sterowniki</h1><section class="card"><h2>Zamów sterownik</h2><p class="mu">Do portalu można podłączyć tylko sterowniki kupione u nas. Przychodzą przygotowane do pracy.</p>
     <form data-f="devorder"><label for="f-model">Model</label><select id="f-model" name="model">${ct.map(m => `<option value="${m.id}"${m === def ? ' selected' : ''}>${esc(m.name)}${m.cheapest ? ' · najtańszy' : ''}</option>`).join('')}</select>
@@ -1006,11 +1053,26 @@ async function vDevices() {
     ${fld('Adres dostawy', 'addr', 'text', 'required autocomplete="street-address"')}
     <details><summary>Ustawienia zaawansowane</summary>${sel('Połączenie z portalem', 'tunnel', [['', 'Domyślne (zalecane)'], ['wg', 'WireGuard'], ['ts', 'Tailscale'], ['mqtt', 'MQTT (Shelly)']])}</details>
     <div class="actions"><button class="pri">Zamów sterownik</button></div></form></section>
-    ${devs.map(d => `<section class="card" data-dev="${d.id}"><div class="dev-h"><div><h2>${esc(title(d))}</h2><p class="mu">${esc(d.model_name)} · nr ${esc(d.code)}</p></div>${statusBadge(d)}</div>
+    ${devs.filter(d => d.model === 'ha').map(d => haCard(d, bs)).join('')}
+    ${devs.filter(d => d.model !== 'ha').map(d => `<section class="card" data-dev="${d.id}"><div class="dev-h"><div><h2>${esc(title(d))}</h2><p class="mu">${esc(d.model_name)} · nr ${esc(d.code)}</p></div>${statusBadge(d)}</div>
     ${steps(d.stage)}${d.stage >= 3 ? '<button data-act="go" data-v="sterowanie">Przejdź do sterowania</button>' : '<p class="mu">Sterowanie włączy się, gdy sterownik połączy się z portalem.</p>'}
     ${bs.length ? `<label for="db${d.id}">Budynek</label><select id="db${d.id}" class="devbld" data-id="${d.id}"><option value="">— bez budynku —</option>${bs.map(b =>
       `<option value="${b.id}"${d.building_id === b.id ? ' selected' : ''}>${esc(b.name)}</option>`).join('')}</select>` : ''}
-    ${d.stage >= 1 ? yamlBlock(d) : ''}</section>`).join('')}`;
+    ${d.stage >= 1 ? yamlBlock(d) : ''}${delBtn('devdel', d.id, d.stage >= 3 ? 'Usuń sterownik z portalu' : 'Anuluj zamówienie i usuń')}</section>`).join('')}
+    ${me.ha ? `<section class="card"><h2>🏠 Sterownik z Home Assistant</h2><p class="mu">Masz już sterownik spięty z Home Assistant? Portal może nim sterować przez API HA
+      (harmonogramy, termostat, drzwi, odczyty), bez zmiany firmware. Token utworzysz w HA: Profil → Bezpieczeństwo → Tokeny długoterminowe.</p>
+      <form data-f="haadd"><div class="row"><div><label for="ha-a">Nazwa</label><input id="ha-a" name="addr" required maxlength="200" placeholder="np. Kurnik (Home Assistant)"></div>
+      <div><label for="ha-t">Połączenie</label><select id="ha-t" name="tunnel"><option value="wg">Home Assistant łączy się z portalem przez WireGuard (zalecane)</option>
+        <option value="url">Adres Home Assistant w internecie (np. Nabu Casa, Cloudflare)</option></select></div></div>
+      <div data-haurl hidden><label for="ha-u">Adres Home Assistant</label><input id="ha-u" name="url" placeholder="https://dom.example.pl"></div>
+      <label for="ha-k">Token długoterminowy</label><input id="ha-k" name="token" type="password" required autocomplete="off">
+      <div class="actions"><button class="pri">Dodaj sterownik z Home Assistant</button></div></form></section>` : ''}
+    <section class="card"><h2>📷 Kamery</h2><p class="mu">Kamery z firmware Thingino łączą się z portalem przez WireGuard. Podgląd (zdjęcie co 10 s) zobaczysz w Sterowaniu i na Starcie.
+      Strumień wideo (RTSP) jest dostępny tylko w tunelu: rtsp://login:hasło@adres/ch0.</p>
+      ${cams.map(c => `<div class="camrow" data-camera="${c.id}">${camImg(c)}<div class="tb"><b>${esc(c.name)}</b><span class="mu">adres w tunelu ${esc(c.ip)}${c.last_ok ? ' · ostatnie zdjęcie ' + ago(c.last_ok) : ' · jeszcze bez połączenia'}</span>
+        ${textBox('camwg' + c.id, `/api/my/cameras/${c.id}/wireguard`, '🔐 Konfiguracja WireGuard dla kamery', WG_HELP + '<p class="mu">W Thingino: ustawienia WireGuard w panelu kamery. Po połączeniu portal pobiera zdjęcie z http://adres/image.jpg.</p>')}
+        <details><summary>Zmień</summary>${camForm(bs, c)}</details>${delBtn('camdel', c.id, 'Usuń kamerę')}</div></div>`).join('')}
+      <details${cams.length ? '' : ' open'}><summary>➕ Dodaj kamerę</summary>${camForm(bs, null)}</details></section>`;
 }
 
 // ---------- Sterowanie ----------
@@ -1133,33 +1195,37 @@ function controlCard(d, log, rd) {
   const head = `<div class="dev-h"><div><h2 id="dh${d.id}">${esc(title(d))}</h2><p class="mu">${esc(d.model_name)} · nr ${esc(d.code)}</p></div>${statusBadge(d)}</div>`;
   if (d.stage < 3) return `<section class="card" data-dev="${d.id}" aria-labelledby="dh${d.id}">${head}${steps(d.stage)}
     <p>Sterowanie będzie dostępne, gdy sterownik połączy się z portalem.</p>${d.stage >= 1 ? yamlBlock(d) : ''}</section>`;
-  const lights = d.channels.filter(c => c.kind === 'light'), others = d.channels.filter(c => c.kind !== 'light' && !DOORS.includes(c.kind));
+  const lights = d.channels.filter(c => c.kind === 'light'), others = d.channels.filter(c => c.kind !== 'light' && !DOORS.includes(c.kind)), ha = d.model === 'ha';
+  if (ha && !d.channels.length) return `<section class="card" data-dev="${d.id}" aria-labelledby="dh${d.id}">${head}
+    <p>Wybierz encje Home Assistant, którymi portal ma sterować.</p><button class="pri" data-act="go" data-v="sterowniki">Wybierz encje</button></section>`;
   return `<section class="card" data-dev="${d.id}" aria-labelledby="dh${d.id}">${head}${offlineBox(d)}
     <h3>Odczyty</h3>${readNums(d)}<div class="charts" data-charts="${d.id}">${charts(d.id, rd)}</div>
     <details><summary>Odczyty w tabeli</summary><div class="tw" data-table="${d.id}">${table(rd)}</div></details>
-    <h3>Światło i drzwi</h3><p class="mu">Przekaźniki otwierania i zamykania drzwi nigdy nie działają jednocześnie. Silnik drzwi wyłącza się sam.</p>
-    <div class="tiles">${lights.map(c => lightTile(d, c)).join('')}${hasDoor(d) ? doorTile(d) : ''}</div>
+    ${lights.length || hasDoor(d) ? `<h3>Światło i drzwi</h3><p class="mu">Przekaźniki otwierania i zamykania drzwi nigdy nie działają jednocześnie. Silnik drzwi wyłącza się sam.</p>
+    <div class="tiles">${lights.map(c => lightTile(d, c)).join('')}${hasDoor(d) ? doorTile(d) : ''}</div>` : ''}
     ${hasDoor(d) ? `<form data-f="doorrun" data-id="${d.id}" class="row" style="max-width:28rem"><div><label for="dr${d.id}">Czas pracy silnika drzwi (sekundy)</label>
       <input id="dr${d.id}" name="door_run_s" type="number" min="1" max="300" value="${d.door_run_s}" required inputmode="numeric"></div><div><button>Zapisz czas</button></div></form>
-      <p class="mu">Ten sam czas jest zapisany w sterowniku jako zabezpieczenie na wypadek braku internetu. Po zmianie wgraj ponownie konfigurację ESPHome.</p>` : ''}
+      <p class="mu">${ha ? 'Drzwi wyłącza portal po tym czasie. W Home Assistant warto mieć też własne zabezpieczenie (automatyzację), na wypadek braku internetu.'
+        : 'Ten sam czas jest zapisany w sterowniku jako zabezpieczenie na wypadek braku internetu. Po zmianie wgraj ponownie konfigurację ESPHome.'}</p>` : ''}
     ${others.length ? `<h3>Pozostałe urządzenia</h3><div class="tiles">${others.map(c => otherTile(d, c)).join('')}</div>` : ''}
     <h3>Harmonogramy</h3><div data-sl="${d.id}">${schedList(d)}</div>${schedForm(d)}
     <h3>Ostatnie zdarzenia</h3><ul class="list log" data-log="${d.id}">${logList(log)}</ul><button class="sm" data-act="logmore" data-id="${d.id}">Pokaż więcej zdarzeń</button>
-    ${yamlBlock(d)}
+    ${ha ? `<p class="mu">Encje Home Assistant zmienisz w <a href="#/sterowniki">Sterownikach</a>.</p></section>` : `${yamlBlock(d)}
     <details><summary>Przypisanie przekaźników</summary><p class="mu">Ustaw, co jest podłączone do którego przekaźnika w sterowniku.</p>
       ${d.channels.map((c, n) => `<form data-f="chan" data-id="${d.id}" data-k="${esc(c.key)}" class="row"><div><label for="cn${d.id}-${n}">Przekaźnik ${n + 1}: nazwa</label>
       <input id="cn${d.id}-${n}" name="name" value="${esc(c.name)}" required maxlength="60"></div><div><label for="ck${d.id}-${n}">Rodzaj</label><select id="ck${d.id}-${n}" name="kind">
-      ${Object.keys(KIND).map(k => `<option value="${k}"${k === c.kind ? ' selected' : ''}>${kname(k)}</option>`).join('')}</select></div><div><button>Zapisz</button></div></form>`).join('')}</details></section>`;
+      ${Object.keys(KIND).map(k => `<option value="${k}"${k === c.kind ? ' selected' : ''}>${kname(k)}</option>`).join('')}</select></div><div><button>Zapisz</button></div></form>`).join('')}</details></section>`}`;
 }
 async function vControl() {
-  const [devs, farm] = await Promise.all([load('/api/my/devices'), load('/api/my/farm')]);
+  const [devs, farm, cams] = await Promise.all([load('/api/my/devices'), load('/api/my/farm'), load('/api/my/cameras')]);
   hasSun = farm.lat != null && farm.lon != null;
-  if (!devs.length) return '<h1>Sterowanie</h1>' + empty('🎛️', 'Nie masz jeszcze sterownika', 'Ze sterownikiem włączysz światło, otworzysz drzwi i ustawisz harmonogramy z telefonu.',
+  const camBox = cams.length ? `<section class="card"><h2>📷 Kamery</h2><div class="cams">${cams.map(c => camImg(c, true)).join('')}</div></section>` : '';
+  if (!devs.length) return '<h1>Sterowanie</h1>' + camBox + empty('🎛️', 'Nie masz jeszcze sterownika', 'Ze sterownikiem włączysz światło, otworzysz drzwi i ustawisz harmonogramy z telefonu.',
     '<button class="pri" data-act="go" data-v="sterowniki">Zamów sterownik</button>');
   const extra = await Promise.all(devs.map(d => d.stage >= 3 ? Promise.all([load(`/api/my/devices/${d.id}/schedules`),
     load(`/api/my/devices/${d.id}/log?limit=15`), load(`/api/my/devices/${d.id}/readings?hours=24`)]) : [[], [], []]));
   devs.forEach((d, i) => { DEV[d.id] = d; SCH[d.id] = extra[i][0] });
-  return {html: '<h1>Sterowanie</h1>' + devs.map((d, i) => controlCard(d, extra[i][1], extra[i][2])).join(''),
+  return {html: '<h1>Sterowanie</h1>' + camBox + devs.map((d, i) => controlCard(d, extra[i][1], extra[i][2])).join(''),
     after: () => $$('form[data-f=sched]').forEach(syncSched)};
 }
 
@@ -1215,7 +1281,7 @@ function unhover(e) {
 }
 
 // ---------- administrator ----------
-const adminTabs = cur => `<div class="tabs" role="navigation" aria-label="Sekcje administratora">${[['admin', 'Sterowniki'], ['admin-kb', 'Baza wiedzy'], ['admin-import', 'Import z e-kurnika'],
+const adminTabs = cur => `<div class="tabs" role="navigation" aria-label="Sekcje administratora">${[['admin', 'Sterowniki'], ['admin-farms', 'Farmy'], ['admin-kb', 'Baza wiedzy'], ['admin-import', 'Import z e-kurnika'],
   ['admin-cfg', 'Konfiguracja'], ['admin-tools', 'Narzędzia']].map(([k, t]) => `<button data-act="go" data-v="${k}"${k === cur ? ' aria-current="page"' : ''}>${t}</button>`).join('')}</div>`;
 const MD_HELP = `<details><summary>Jak formatować tekst</summary><pre>## Nagłówek        ### Mniejszy nagłówek
 **pogrubienie**    *kursywa*    \`kod\`
@@ -1295,7 +1361,7 @@ async function vAdmin(tab) {
     h += dv.map(d => `<section class="card" data-dev="${d.id}"><div class="dev-h"><div><h2>${esc(d.code)}</h2><p class="mu">${esc(d.model_name)} · ${esc(fname(d.farm_id))}</p></div>
       <span class="badge ${d.online ? 'ok' : 'no'}">${d.online ? 'online' : 'offline'}</span></div>${steps(d.stage)}
       <div class="row"><div><label for="fm${d.id}">Przypisana farma</label><select id="fm${d.id}" class="fm">${fo.map(([v, t]) => `<option value="${v}"${v === d.farm_id ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
-      <div><button data-act="assign" data-id="${d.id}">Przypisz do farmy</button></div></div>
+      <div><button data-act="assign" data-id="${d.id}">Przypisz do farmy</button></div></div>${delBtn('admdevdel', d.id, 'Usuń sterownik')}
       <div class="actions"><button class="pri" data-act="stage" data-id="${d.id}" data-s="${d.stage}" ${d.stage >= 3 ? 'disabled' : ''}>${d.stage >= 3 ? 'Wszystkie etapy zakończone'
       : 'Następny etap: ' + STAGES[d.stage + 1]}</button></div>
       ${d.firmware ? fwBox(d) : `<p class="mu">Firmware: ${d.model === 'shp' ? 'Shelly ma własny firmware (ustawienia MQTT w konfiguracji).' : 'Waveshare: uzupełnij piny Ethernet w konfiguracji, potem wgraj ręcznie.'}</p>`}
@@ -1306,6 +1372,11 @@ async function vAdmin(tab) {
       <pre data-yaml="s${d.id}" hidden></pre></details>
       <details><summary>Odczyt testowy</summary><form data-f="reading" data-key="${esc(d.api_key)}"><div class="row"><div>${fld('Temperatura (°C)', 't', 'number', 'step="0.1" value="21"').replace(/f-t"/g, `rt${d.id}"`)}</div>
       <div>${fld('Wilgotność (%)', 'h', 'number', 'value="60"').replace(/f-h"/g, `rh${d.id}"`)}</div><div><button>Wyślij odczyt</button></div></div></form></details></section>`).join('');
+  } else if (tab === 'farms') {
+    const fs = await load('/api/admin/farms');
+    h += `<section class="card"><h2>Farmy</h2><p class="mu">Funkcje dodatkowe dla wybranych farm. „Home Assistant” pozwala rolnikowi dodać własny sterownik spięty z HA.</p>
+      <ul class="list">${fs.map(f => `<li data-farmrow="${f.id}"><div class="tb"><b>${esc(f.name)}</b><span class="mu">${esc(f.city)} · ${f.users.map(esc).join(', ') || 'bez konta'}
+      · sterowniki: ${f.devices} · kamery: ${f.cameras}</span></div><label class="chk"><input type="checkbox" class="farmha" data-id="${f.id}" ${f.ha_enabled ? 'checked' : ''}> Home Assistant</label></li>`).join('')}</ul></section>`;
   } else if (tab === 'cfg') {
     const c = await load('/api/admin/config');
     h += `<section class="card"><h2>Tunel WireGuard</h2><form data-f="cfg">${fld('Adres serwera', 'wg_endpoint', 'text', `value="${esc(c.wg_endpoint)}"`)}${fld('Port', 'wg_port', 'text', `value="${esc(c.wg_port)}"`)}
@@ -1426,6 +1497,29 @@ const ACT = {
   async delflock(b) { if (done(await api('DELETE', `/api/my/flocks/${b.dataset.id}`), 'Stado usunięte')) await refresh() },
   kbcat(b) { kbCat = b.dataset.v; $$('[data-act=kbcat]').forEach(x => x.setAttribute('aria-pressed', x === b)); kbSearch() },
   async kbdel(b) { if (done(await api('DELETE', `/api/admin/kb/${b.dataset.id}`), 'Artykuł usunięty')) go('admin-kb') },
+  async textload(b) {
+    const pre = $(`[data-yaml="${b.dataset.id}"]`); if (pre.dataset.loaded) return;
+    const r = await api('GET', b.dataset.url);
+    pre.textContent = typeof r.data === 'string' ? r.data : errMsg(r); if (r.ok) pre.dataset.loaded = 1;
+  },
+  async devdel(b) {
+    if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = 'Na pewno? Harmonogramy i historia zostaną usunięte'; return }
+    if (done(await api('DELETE', `/api/my/devices/${b.dataset.id}`), 'Sterownik usunięty')) await refresh();
+  },
+  async admdevdel(b) {
+    if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = 'Na pewno usunąć?'; return }
+    if (done(await api('DELETE', `/api/admin/devices/${b.dataset.id}`), 'Sterownik usunięty')) await refresh();
+  },
+  async camdel(b) {
+    if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = 'Na pewno usunąć kamerę?'; return }
+    if (done(await api('DELETE', `/api/my/cameras/${b.dataset.id}`), 'Kamera usunięta')) await refresh();
+  },
+  async haent(b) {
+    const box = $(`[data-haent="${b.dataset.id}"]`), d = (await load('/api/my/devices')).find(x => x.id === +b.dataset.id);
+    box.innerHTML = '<p class="loading" role="status">Pytam Home Assistant…</p>';
+    const r = await api('GET', `/api/my/devices/${b.dataset.id}/ha/entities`);
+    box.innerHTML = r.ok ? haEntForm(d, r.data) : `<div class="alert bad" role="alert"><b>Nie udało się połączyć z Home Assistant</b>${esc(errMsg(r))}</div>`;
+  },
   async yaml(b) {
     const pre = $(`[data-yaml="${b.dataset.id}"]`); if (pre.dataset.loaded) return;
     const r = await api('GET', `/api/my/devices/${b.dataset.id}/yaml`);
@@ -1507,6 +1601,29 @@ const FORMS = {
   async chorecfg(f, v) {
     const kinds = Object.keys(CHORE).filter(k => 'k_' + k in v), r = await api('PUT', '/api/my/chores/config', {kinds, amounts: 'amounts' in v});
     done(r, kinds.length ? 'Lista obowiązków jest na ekranie Start' : 'Lista obowiązków wyłączona');
+  },
+  async haadd(f, v) {
+    const b = {addr: v.addr, tunnel: v.tunnel, token: v.token};
+    if (v.tunnel === 'url') b.url = v.url;
+    const r = await api('POST', '/api/my/ha-devices', b);
+    if (done(r, v.tunnel === 'wg' ? 'Dodano. Skonfiguruj WireGuard w Home Assistant, potem wybierz encje.' : 'Dodano. Wybierz encje do sterowania.')) await refresh();
+  },
+  async hapatch(f, v) {
+    const b = {};
+    if (v.url) b.url = v.url;
+    if (v.token) b.token = v.token;
+    if (done(await api('PATCH', `/api/my/devices/${f.dataset.id}/ha`, b), 'Zapisano')) await refresh();
+  },
+  async hachan(f, v) {
+    const channels = [];
+    for (let i = 0; 'ent_' + i in v; i++) if ('on_' + i in v) channels.push({entity_id: v['ent_' + i], name: v['name_' + i], kind: v['kind_' + i]});
+    if (done(await api('PUT', `/api/my/devices/${f.dataset.id}/ha/channels`, {channels, temp: v.temp, hum: v.hum}), `Zapisano encje: ${channels.length}`)) await refresh();
+  },
+  async camera(f, v) {
+    const id = f.dataset.id, b = {name: v.name, user: v.user || 'thingino'};
+    if (v.password) b.password = v.password;
+    if ('building_id' in v) b.building_id = num(v.building_id);
+    if (done(await api(id ? 'PATCH' : 'POST', `/api/my/cameras${id ? '/' + id : ''}`, b), id ? 'Zapisano kamerę' : 'Dodano kamerę. Skonfiguruj w niej WireGuard.')) await refresh();
   },
   async photo(f) {
     const fd = new FormData(f), file = f.elements.file.files[0];
@@ -1698,6 +1815,8 @@ document.addEventListener('change', async e => {
   if (f && f.dataset.f === 'fwset') fwPins(f);
   if (f && f.dataset.f === 'sale') saleSync(f, t.name === 'client_id');
   if (f && f.dataset.f === 'devorder' && t.name === 'model') $('[data-cheap]', f).hidden = !/najtańszy/.test(t.selectedOptions[0] ? t.selectedOptions[0].textContent : '');
+  if (f && f.dataset.f === 'haadd' && t.name === 'tunnel') { $('[data-haurl]', f).hidden = t.value !== 'url'; return }
+  if (t.classList.contains('farmha')) { done(await api('PATCH', `/api/admin/farms/${t.dataset.id}`, {ha_enabled: t.checked}), t.checked ? 'Home Assistant włączony dla farmy' : 'Home Assistant wyłączony'); return }
   if (t.classList.contains('armonth')) { arMonth = t.value; const y = scrollY; await refresh(); scrollTo(0, y); return }
   if (t.classList.contains('devbld')) { done(await api('PATCH', `/api/my/devices/${t.dataset.id}`, {building_id: num(t.value)}), 'Zapisano budynek sterownika'); return }
   if (t.classList.contains('nm')) {
@@ -1706,6 +1825,14 @@ document.addEventListener('change', async e => {
     if (done(await api('PATCH', `/api/my/devices/${id}/channels/${k}`, {name: t.value}), 'Zapisano nazwę')) DEV[id].channels.find(x => x.key === k).name = t.value.trim();
   }
 });
+document.addEventListener('error', e => {  // kamera bez połączenia: zamiast pustego obrazka komunikat pod podglądem
+  const i = e.target; if (!i || !i.dataset || !i.dataset.cam) return;
+  const m = i.closest('figure') && i.closest('figure').querySelector('[data-camerr]'); if (m) m.textContent = '· brak połączenia';
+}, true);
+document.addEventListener('load', e => {
+  const i = e.target; if (!i || !i.dataset || !i.dataset.cam) return;
+  const m = i.closest('figure') && i.closest('figure').querySelector('[data-camerr]'); if (m) m.textContent = '';
+}, true);
 document.addEventListener('pointermove', hover);
 document.addEventListener('pointerout', unhover);
 addEventListener('hashchange', () => { const r = route(); if ((r.name || home()) + '/' + r.arg !== current) render(true) });

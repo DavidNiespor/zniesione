@@ -188,8 +188,10 @@ def write_wg_conf(db, path):
     db.commit()
     text = (f"# Plik tworzy portal zniesione.pl. Nie edytuj ręcznie.\n[Interface]\nAddress = {cfg(db, 'net')}.1/24\n"
             f"ListenPort = 51820\nPrivateKey = {priv}\n")
-    for d in db.execute("SELECT code, ip, wg_pub FROM devices WHERE tunnel='wg' ORDER BY id"):
+    for d in db.execute("SELECT code, ip, wg_pub FROM devices WHERE tunnel='wg' AND wg_pub IS NOT NULL ORDER BY id"):
         text += f"\n[Peer]\n# {d['code']}\nPublicKey = {d['wg_pub']}\nAllowedIPs = {d['ip']}/32\n"
+    for c in db.execute("SELECT id, ip, wg_pub FROM cameras ORDER BY id"):  # kamery (np. Thingino) w tym samym tunelu
+        text += f"\n[Peer]\n# kamera {c['id']}\nPublicKey = {c['wg_pub']}\nAllowedIPs = {c['ip']}/32\n"
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -209,6 +211,14 @@ def device_keys(db, dev):
         db.commit()
         dev = db.execute("SELECT * FROM devices WHERE id=?", (dev["id"],)).fetchone()
     return dev
+
+
+def peer_conf(db, ip, priv, title):
+    """Konfiguracja WireGuard dla urządzenia spoza ESPHome (Home Assistant, kamera): standardowy plik wg-quick.
+    Urządzenie łączy się z serwerem portalu i wpuszcza ruch tylko od niego (AllowedIPs = adres serwera w tunelu)."""
+    _, pub = wg_server(db)
+    return (f"# {title}\n[Interface]\nPrivateKey = {priv}\nAddress = {ip}/32\n\n[Peer]\nPublicKey = {pub}\n"
+            f"Endpoint = {cfg(db, 'wg_endpoint')}:{cfg(db, 'wg_port')}\nAllowedIPs = {cfg(db, 'net')}.1/32\nPersistentKeepalive = 25\n")
 
 
 def esphome_secrets(dev, db):
@@ -254,7 +264,7 @@ def _report(dev, net, has_t, has_h):
 
 def alloc_ip(db):
     net = cfg(db, "net")
-    used = {r["ip"] for r in db.execute("SELECT ip FROM devices")}
+    used = {r["ip"] for r in db.execute("SELECT ip FROM devices UNION SELECT ip FROM cameras")}
     for i in range(10, 251):
         if f"{net}.{i}" not in used:
             return f"{net}.{i}"
@@ -329,8 +339,34 @@ def builder_call(cfg, method, path, body=None, raw=False):
         return 503, {"error": f"Builder niedostępny: {e}"}
 
 
+HA_DOMAINS = ("switch", "light", "input_boolean", "fan")  # encje, które portal włącza i wyłącza (usługi turn_on / turn_off)
+
+
+def ha_base(dev):
+    return f"http://{dev['ip']}:8123" if dev["tunnel"] == "wg" else (dev["ha_url"] or "").rstrip("/")
+
+
+def ha_call(dev, method, path, body=None):
+    """REST API Home Assistant (token długoterminowy). Zwraca (kod HTTP, JSON albo komunikat błędu)."""
+    req = urllib.request.Request(ha_base(dev) + path, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": f"Bearer {dev['ha_token'] or ''}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=6) as r:
+            return r.status, json.loads(r.read(2_000_000) or b"null")
+    except urllib.error.HTTPError as e:
+        return e.code, {"error": "Home Assistant odrzucił token" if e.code == 401 else f"HTTP {e.code}"}
+    except (OSError, ValueError) as e:
+        return 503, {"error": f"Brak połączenia z Home Assistant: {e}"}
+
+
 def send_http(dev, ch, state):
     """Wysyła polecenie do urządzenia przez tunel. Ścieżkę zweryfikuj z web_server ESPHome na sprzęcie."""
+    if dev["model"] == "ha":  # kanał = encja Home Assistant, np. switch.kurnik_swiatlo
+        domain = ch.split(".", 1)[0]
+        if domain not in HA_DOMAINS:
+            return False, "Nieobsługiwana encja Home Assistant"
+        code, js = ha_call(dev, "POST", f"/api/services/{domain}/turn_{'on' if state else 'off'}", {"entity_id": ch})
+        return (True, None) if code == 200 else (False, js.get("error") if isinstance(js, dict) else f"HTTP {code}")
     if dev["model"] == "shp":
         return False, "MQTT jeszcze nie zaimplementowane"
     base = os.environ.get("DEVICE_BASE") or f"http://{dev['ip']}"  # DEVICE_BASE: atrapa urządzenia w testach
@@ -402,6 +438,7 @@ def tick(app, now=None):
     po RETRY_S sekundach. Stan jest w bazie, więc restart aplikacji niczego nie gubi."""
     now = now or datetime.now()
     sent = []
+    poll_ha(app, now)
     backoff = app.extensions.setdefault("zniesione_backoff", {})
     with app.app_context():
         db = dbm.get()
@@ -418,6 +455,50 @@ def tick(app, now=None):
                 backoff[d["id"]] = now + timedelta(seconds=RETRY_S)
         db.commit()
     return sent
+
+
+HA_POLL_S = 60
+
+
+def poll_ha(app, now):
+    """Sterowniki z Home Assistant nie wysyłają odczytów same: co minutę portal pyta HA o działanie i czujniki."""
+    last = app.extensions.setdefault("zniesione_ha_poll", {})
+    with app.app_context():
+        db = dbm.get()
+        for d in db.execute("SELECT * FROM devices WHERE model='ha' AND stage=3").fetchall():
+            if d["id"] in last and (now - last[d["id"]]).total_seconds() < HA_POLL_S:
+                continue
+            last[d["id"]] = now
+            code, _ = app.config["HA_CALL"](dict(d), "GET", "/api/")
+            if code != 200:
+                continue  # offline ustawi silnik po OFFLINE_S bez kontaktu
+            vals = {}
+            for k, col in (("t", "ha_temp"), ("h", "ha_hum")):
+                if d[col]:
+                    c2, js = app.config["HA_CALL"](dict(d), "GET", f"/api/states/{d[col]}")
+                    try:
+                        vals[k] = float(js["state"]) if c2 == 200 else None
+                    except (TypeError, ValueError, KeyError):
+                        vals[k] = None  # np. "unavailable"
+            db.execute("UPDATE devices SET online=1, last_seen=? WHERE id=?", (now.isoformat(), d["id"]))
+            if any(v is not None for v in vals.values()):
+                db.execute("INSERT INTO readings(device_id,t,h,at) VALUES(?,?,?,?)", (d["id"], vals.get("t"), vals.get("h"), now.isoformat()))
+        db.commit()
+
+
+def cam_fetch(cam):
+    """Zdjęcie z kamery Thingino przez tunel: http://<adres>/image.jpg, logowanie Basic (domyślnie thingino/thingino)."""
+    base = os.environ.get("CAMERA_BASE") or f"http://{cam['ip']}"
+    tok = base64.b64encode(f"{cam['cam_user']}:{cam['cam_pass']}".encode()).decode()
+    req = urllib.request.Request(base + "/image.jpg", headers={"Authorization": "Basic " + tok})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = r.read(6_000_000)
+    except urllib.error.HTTPError as e:
+        return False, "Kamera odrzuciła login lub hasło" if e.code == 401 else f"Kamera: HTTP {e.code}"
+    except OSError as e:
+        return False, f"Brak połączenia z kamerą: {e}"
+    return (True, data) if data[:3] == b"\xff\xd8\xff" else (False, "Kamera nie zwróciła zdjęcia JPEG")
 
 
 def _tick_device(app, db, d, now, sent):
