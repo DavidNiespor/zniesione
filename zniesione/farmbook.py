@@ -312,7 +312,10 @@ def register(app, need, q, commit, body, err, integer):
         for r in q("SELECT * FROM buildings WHERE farm_id=? ORDER BY name", fid):
             fl = [dict(x) for x in q("SELECT id, name, birds FROM flocks WHERE building_id=? ORDER BY name", r["id"])]
             dv = [dict(x) for x in q("SELECT id, code, addr FROM devices WHERE building_id=? AND farm_id=?", r["id"], fid)]
-            out.append(dict(r, flocks=fl, birds=sum(x["birds"] for x in fl), devices=dv))
+            e = {d: q("SELECT COALESCE(SUM(eggs),0) FROM eggs WHERE farm_id=? AND building_id=? AND kind='collect' AND at>=?", fid, r["id"],
+                      (date.today() - timedelta(days=d - 1)).isoformat()).fetchone()[0] for d in (7, 30)}
+            out.append(dict(r, flocks=fl, birds=sum(x["birds"] for x in fl), devices=dv, eggs_7d=e[7], eggs_30d=e[30],
+                            laying_7d=round(e[7] * 100 / (7 * sum(x["birds"] for x in fl)), 1) if fl and sum(x["birds"] for x in fl) else None))
         return jsonify(out)
 
     @app.route("/api/my/buildings/<int:bid>", methods=["PATCH", "DELETE"])
@@ -323,7 +326,7 @@ def register(app, need, q, commit, body, err, integer):
         if not old:
             return err("Nie znaleziono", 404)
         if request.method == "DELETE":  # stada i sterowniki zostają, bez przypisania
-            for t in ("flocks", "devices", "eggs"):
+            for t in ("flocks", "devices", "eggs", "photos"):
                 q(f"UPDATE {t} SET building_id=NULL WHERE building_id=?", bid)
             q("DELETE FROM buildings WHERE id=?", bid)
             commit()

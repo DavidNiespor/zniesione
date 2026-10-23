@@ -18,12 +18,14 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import analytics
+from . import archive
 from . import catalog as cat
 from . import db as dbm
 from . import clients
 from . import ekurnik
 from . import farmbook
 from . import feed
+from . import photos
 from . import team
 from . import services as sv
 
@@ -196,7 +198,7 @@ def create_app(test_config=None):
         return dict(id=d["id"], code=d["code"], model=d["model"], model_name=cat.MODELS[d["model"]]["name"],
                     tunnel=d["tunnel"], ip=d["ip"], stage=d["stage"], online=bool(d["online"]), addr=d["addr"],
                     farm_id=d["farm_id"], channels=ch, reading=rs[0] if rs else None, readings=rs,
-                    last_seen=d["last_seen"], door=d["door"], door_run_s=d["door_run_s"],
+                    last_seen=d["last_seen"], door=d["door"], door_run_s=d["door_run_s"], building_id=d["building_id"],
                     **({"api_key": d["api_key"], "sensor": d["sensor"], "sensor_pins": json.loads(d["sensor_pins"] or "{}"),
                         "wifi_ssid": d["wifi_ssid"], "wifi_set": bool(d["wifi_password"]), "fw_job": d["fw_job"],
                         "chip": "ESP32-S3" if "s3" in cat.MODELS[d["model"]].get("board", "") else "ESP32",
@@ -253,7 +255,7 @@ def create_app(test_config=None):
 
     def farm_json(f):
         return dict(id=f["id"], name=f["name"], city=f["city"], zip=f["zip"], breed=f["breed"],
-                    descr=f["descr"], price10=f["price10"], stock=f["stock"])
+                    descr=f["descr"], price10=f["price10"], stock=f["stock"], **shop_extra(f["id"]))
 
     @app.get("/api/farms")
     def farms():
@@ -671,11 +673,14 @@ def create_app(test_config=None):
         if request.method == "PATCH":
             return flock_save(body(), old)
         q("DELETE FROM flocks WHERE id=?", fid)
+        q("UPDATE photos SET flock_id=NULL WHERE flock_id=?", fid)  # zdjęcie zostaje w galerii budynku lub gospodarstwa
         commit()
         return jsonify(ok=True)
 
     farmbook.register(app, need, q, commit, body, err, integer)
     feed.register(app, need, q, commit, body, err)
+    shop_extra = photos.register(app, need, q, commit, body, err)
+    archive.register(app, need, q, commit, err)
     team.register(app, need, q, commit, body, err)
     analytics.register(app, need, q, commit, body, err)
 
@@ -1064,6 +1069,24 @@ def create_app(test_config=None):
         except ValueError as e:
             raise click.ClickException(str(e))
         click.echo("Zaimportowano: " + ", ".join(f"{k}: {v}" for k, v in n.items()))
+
+    @app.cli.command("import-archive")
+    @click.argument("path", type=click.Path(exists=True, dir_okay=False))
+    @click.option("--email", required=True, help="E-mail konta rolnika, do którego farmy trafi archiwum")
+    def import_archive_cmd(path, email):
+        """Archiwum z dawnego arkusza Google (CSV) jako podgląd tylko do odczytu."""
+        u = q("SELECT * FROM users WHERE email=? AND role='farmer'", email.strip().lower()).fetchone()
+        if not u:
+            raise click.ClickException(f"Nie ma konta rolnika {email}")
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        try:
+            days = archive.parse(raw.decode("utf-8-sig", errors="replace"))
+        except ValueError as e:
+            raise click.ClickException(str(e))
+        archive.store(q, u["farm_id"], days, os.path.basename(path))
+        commit()
+        click.echo(f"Archiwum: {len(days)} dni, od {days[0]['day']} do {days[-1]['day']}")
 
     @app.cli.command("seed-demo")
     def seed_demo():

@@ -7,3 +7,6 @@ node_modules/
 *.db-shm
 *.db-wal
 *.db-journal
+/*.csv
+uploads/
+photos/

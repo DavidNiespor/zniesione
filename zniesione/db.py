@@ -55,6 +55,12 @@ CREATE TABLE IF NOT EXISTS recipes(id INTEGER PRIMARY KEY, farm_id INTEGER NOT N
 CREATE TABLE IF NOT EXISTS recipe_items(id INTEGER PRIMARY KEY, recipe_id INTEGER NOT NULL, item_id INTEGER NOT NULL, percent REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS mixes(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, at TEXT NOT NULL, recipe_id INTEGER, kg REAL NOT NULL,
   notes TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS photos(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, building_id INTEGER, flock_id INTEGER,
+  file TEXT NOT NULL, caption TEXT NOT NULL DEFAULT '', created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS archive_days(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, day TEXT NOT NULL, hens INTEGER NOT NULL DEFAULT 0,
+  broody INTEGER NOT NULL DEFAULT 0, eggs INTEGER NOT NULL DEFAULT 0, logged INTEGER NOT NULL DEFAULT 1, losses INTEGER NOT NULL DEFAULT 0,
+  stock INTEGER NOT NULL DEFAULT 0, orders INTEGER NOT NULL DEFAULT 0, home INTEGER NOT NULL DEFAULT 0, sales TEXT NOT NULL DEFAULT '[]',
+  revenue REAL NOT NULL DEFAULT 0, expense REAL NOT NULL DEFAULT 0, expense_type TEXT NOT NULL DEFAULT '', paid_out INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS buildings(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, name TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS kb(id INTEGER PRIMARY KEY, title TEXT NOT NULL, category TEXT NOT NULL DEFAULT '', body TEXT NOT NULL,
   published INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL, updated TEXT NOT NULL);
@@ -82,6 +88,7 @@ COLUMNS = [
     ("eggs", "pool", "TEXT NOT NULL DEFAULT ''"), ("eggs", "building_id", "INTEGER"),
     ("flocks", "building_id", "INTEGER"), ("devices", "building_id", "INTEGER"),
     ("orders", "due_date", "TEXT NOT NULL DEFAULT ''"),
+    ("farms", "archive_name", "TEXT NOT NULL DEFAULT ''"), ("farms", "archive_at", "TEXT NOT NULL DEFAULT ''"),
     ("eggs", "user_id", "INTEGER"), ("sales", "user_id", "INTEGER"), ("ledger", "user_id", "INTEGER"),
     ("feed_moves", "user_id", "INTEGER"), ("mixes", "user_id", "INTEGER"), ("expenses", "user_id", "INTEGER"),
     ("channels", "off_at", "TEXT"), ("channels", "want", "INTEGER"),
