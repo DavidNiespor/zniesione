@@ -4,118 +4,167 @@ Wszystko, czego portal potrzebuje do działania, jest w jednym pliku [`docker-co
 
 | Kontener | Rola |
 |---|---|
-| `siec` | wspólna sieć portalu i WireGuard; wystawia porty i nazwę `portal` dla tunelu |
+| `siec` | wspólna sieć portalu i WireGuard; wystawia port WireGuard i nazwę `portal` dla tunelu |
 | `zniesione` | portal (gunicorn, silnik harmonogramów, baza SQLite w wolumenie `zniesione-data`) |
 | `wireguard` | serwer VPN, przez który portal łączy się ze sterownikami w kurnikach (10.8.0.x) |
-| `cloudflared` | tunel Cloudflare: HTTPS z internetu bez otwierania portów 80 i 443 |
-| `dns` | ustawia w Cloudflare rekord `wg.twojadomena.pl` → IP serwera (bez proxy) i pilnuje go przy zmianie IP |
-| `kopie` | codzienna kopia bazy do wolumenu `kopie`, przechowywana 14 dni |
+| `cloudflared` | tunel Cloudflare: strona i poczta w przeglądarce przez HTTPS, bez otwierania portów 80 i 443 |
+| `dns` | ustawia w Cloudflare rekordy: `wg.` (WireGuard), `mail.`, MX, SPF, DKIM, DMARC; pilnuje ich przy zmianie IP |
+| `poczta-start` | jednorazowo: skrzynka `admin@zniesione.pl`, aliasy `postmaster@` i `abuse@`, klucz DKIM |
+| `certyfikat` | certyfikat TLS dla `mail.zniesione.pl` z Let's Encrypt (przez DNS Cloudflare), odnawiany sam |
+| `poczta` | serwer poczty docker-mailserver: SMTP, IMAP, filtr spamu, DKIM, blokada zgadywania haseł |
+| `webmail` | Roundcube: poczta w przeglądarce pod `poczta.zniesione.pl` |
+| `kopie` | codzienna kopia bazy portalu do wolumenu `kopie`, przechowywana 14 dni |
 
 ```
-przeglądarka ──HTTPS──▶ Cloudflare ──tunel──▶ cloudflared ──▶ portal:8000 ┐
-                                                                         ├─ wspólna sieć (siec)
-sterownik w kurniku ──WireGuard UDP 51820──▶ serwer ──▶ wireguard (wg0)  ┘   portal ──HTTP──▶ 10.8.0.x
+przeglądarka ──HTTPS──▶ Cloudflare ──tunel──▶ cloudflared ──▶ portal:8000 (zniesione.pl)
+                                                         └──▶ webmail:80  (poczta.zniesione.pl)
+sterownik w kurniku ──WireGuard UDP 51820──▶ serwer ──▶ wireguard ◀── portal łączy się ze sterownikami (10.8.0.x)
+inne serwery poczty ──SMTP 25──▶ serwer ──▶ poczta ◀── telefon i program pocztowy (IMAP 993, SMTP 465/587)
 ```
 
-Portal sam tworzy klucze WireGuard (serwera i każdego sterownika) oraz plik `wg0.conf`. Kontener `wireguard`
-wczytuje nowe sterowniki w ciągu 15 sekund, bez restartu.
+## Zanim zaczniesz: wymagania
 
-## Co wybrać: serwer z konsolą czy Portainer?
-
-Oba sposoby uruchamiają ten sam plik `docker-compose.yml` z GitHuba.
-- **Nie masz Portainera:** zwykły serwer z Docker Compose, kilka poleceń w SSH.
-- **Masz Portainera albo wolisz klikać:** Portainer, metoda „Repository”, buduje obraz prosto z repozytorium.
-
-## Wymagania
-
-- Serwer z Linuksem (np. Ubuntu 22.04 lub 24.04) z jądrem 5.6 lub nowszym (WireGuard jest w jądrze), Docker z Compose v2.
-- Domena dodana do Cloudflare (plan Free wystarczy).
-- Publiczny adres IP serwera i otwarty port **51820/UDP** (dla sterowników).
+- Serwer z Linuksem (np. Ubuntu 22.04 lub 24.04), jądro 5.6 lub nowsze, Docker z Compose v2, **co najmniej 2 GB RAM**
+  (portal z pocztą i filtrem spamu zajmuje ok. 1–1,5 GB).
+- **Stały publiczny adres IPv4** serwera.
+- Domena `zniesione.pl` dodana do Cloudflare (plan Free wystarczy), status „Active”.
+- **Port 25 otwarty w obie strony.** Wielu dostawców VPS i łączy domowych go blokuje; czasem odblokowują go na prośbę
+  (zgłoszenie do supportu). Bez portu 25 poczta nie będzie przychodzić ani wychodzić do innych serwerów.
+- **Rekord odwrotny (PTR, „reverse DNS”) adresu IP serwera = `mail.zniesione.pl`.** Ustawia się go w panelu dostawcy
+  serwera (nie w Cloudflare). Bez niego Gmail, Onet, WP i inni odrzucą albo wrzucą pocztę do spamu.
+- Porty do otwarcia w zaporze serwera (i ewentualnie w routerze): **25, 465, 587, 993 (TCP)** oraz **51820 (UDP)**.
 
 ## 1. Cloudflare
 
-1. Dodaj domenę do Cloudflare i u rejestratora zmień serwery nazw na te podane przez Cloudflare. Poczekaj na status „Active”.
-2. **Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared**, nazwa np. `zniesione`.
-3. Na ekranie instalacji wybierz **Docker** i skopiuj token z polecenia (ciąg po `--token`). To jest `TUNNEL_TOKEN`.
-   Samego polecenia nie uruchamiaj: `cloudflared` jest już w stacku.
-4. W tunelu dodaj adres strony: **Published application routes** (w starszym panelu **Public Hostname**) → **Add**:
-   Subdomain puste (albo `www`), Domain: Twoja domena, Path puste, Service URL **`http://portal:8000`**
-   (w starszym panelu: Type **HTTP** i URL `portal:8000`). Nie `https://`: szyfrowanie zapewnia Cloudflare.
-5. **SSL/TLS → Edge Certificates → Always Use HTTPS**: włącz. Logowanie działa tylko przez `https://`.
-   Rekord DNS dla adresu strony Cloudflare tworzy sam przy zapisie tej trasy.
-6. Rekord dla sterowników (`wg.twojadomena.pl`, WireGuard nie przechodzi przez proxy Cloudflare) ustawia kontener `dns`.
-   Potrzebuje tokenu API: **My Profile → API Tokens → Create Token → szablon „Edit zone DNS”** → Zone Resources:
-   *Include → Specific zone → Twoja domena* → **Continue → Create Token**. Skopiuj token jako `CF_API_TOKEN`,
-   a `WG_HOST` ustaw na np. `wg.twojadomena.pl`.
-   Bez tokenu dodaj rekord ręcznie: **DNS → Add record**, typ **A**, nazwa `wg`, adres = publiczny IP serwera,
-   **Proxy: DNS only** (szara chmurka). Przy zmiennym IP trzeba go wtedy poprawiać samemu.
-7. (Zalecane) **Security → WAF → Rate limiting rules**: np. 20 żądań na minutę na `/api/auth/login`.
+### 1.1. Tunel (strona i poczta w przeglądarce)
+1. **dash.cloudflare.com → Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared**, nazwa np. `zniesione`.
+2. Na ekranie instalacji wybierz **Docker** i skopiuj ciąg po `--token` (zaczyna się od `eyJ`). To jest `TUNNEL_TOKEN`.
+   Polecenia nie uruchamiaj, `cloudflared` jest w stacku.
+3. W tunelu: **Published application routes** (w starszym panelu **Public Hostname**) → **Add**, dwie pozycje:
 
-## 2a. Serwer z Docker Compose
+   | Subdomain | Domain | Path | Service URL |
+   |---|---|---|---|
+   | puste | `zniesione.pl` | puste | `http://portal:8000` |
+   | `poczta` | `zniesione.pl` | puste | `http://webmail:80` |
+
+   Rekordy DNS dla tych adresów Cloudflare tworzy sam. W starszym panelu wybierz Type **HTTP** i wpisz URL bez `http://`.
+4. **SSL/TLS → Edge Certificates → Always Use HTTPS**: włącz.
+
+### 1.2. Token API (rekordy DNS i certyfikat poczty)
+1. Profil (prawy górny róg) → **My Profile → API Tokens → Create Token** → szablon **Edit zone DNS → Use template**.
+2. **Zone Resources**: *Include → Specific zone → zniesione.pl* → **Continue to summary → Create Token**.
+3. Skopiuj token (pokazuje się tylko raz). To jest `CF_API_TOKEN`.
+
+Kontener `dns` ustawi nim sam: `wg.zniesione.pl` i `mail.zniesione.pl` (A, bez proxy), `MX zniesione.pl → mail.zniesione.pl`,
+SPF `v=spf1 mx -all`, DMARC i klucz DKIM. Jeśli SPF albo DMARC już istnieje, zostawi go i napisze o tym w logach.
+Jeśli w domenie jest włączone **Cloudflare Email Routing**, wyłącz je (Email → Email Routing → Settings → Disable):
+jego rekordy MX kierowałyby pocztę do Cloudflare zamiast do Twojego serwera.
+
+## 2. Zmienne stacka
+
+Wszystkie są opisane w [`.env.example`](../.env.example). Wymagane:
+
+| Zmienna | Co wpisać |
+|---|---|
+| `SECRET_KEY` | losowy klucz sesji: `python3 -c "import secrets;print(secrets.token_hex(32))"` |
+| `TUNNEL_TOKEN` | token tunelu z punktu 1.1 |
+| `CF_API_TOKEN` | token API z punktu 1.2 |
+| `MAIL_ADMIN_PASSWORD` | hasło skrzynki `admin@zniesione.pl` (min. 10 znaków) |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | konto administratora portalu, np. `admin@zniesione.pl` i hasło (min. 8 znaków) |
+
+Konto administratora portalu tworzy się samo przy pierwszym starcie. Późniejsza zmiana `ADMIN_PASSWORD` nie zmienia
+już hasła (żeby restart nie nadpisał hasła zmienionego w portalu).
+
+## 3a. Serwer z Docker Compose
 
 ```sh
 curl -fsSL https://get.docker.com | sudo sh
 sudo git clone https://github.com/DavidNiespor/zniesione.git /opt/zniesione
 cd /opt/zniesione
 sudo cp .env.example .env
-python3 -c "import secrets;print(secrets.token_hex(32))"     # wklej jako SECRET_KEY
-sudo nano .env                                              # SECRET_KEY, TUNNEL_TOKEN, CF_API_TOKEN, WG_HOST
+sudo nano .env                     # uzupełnij zmienne z punktu 2
 sudo docker compose up -d --build
-sudo docker compose exec zniesione flask --app zniesione create-admin
+sudo ufw allow OpenSSH && sudo ufw allow 25,465,587,993/tcp && sudo ufw allow 51820/udp && sudo ufw enable
 ```
-
-Zapora: `sudo ufw allow OpenSSH && sudo ufw allow 51820/udp && sudo ufw enable`. Portów 80 i 443 nie otwieraj.
-Stack nie zajmuje portu 8000 na serwerze, więc nie koliduje z Portainerem ani innymi usługami.
 
 Aktualizacja: `cd /opt/zniesione && sudo git pull && sudo docker compose up -d --build`
 
-## 2b. Portainer
+## 3b. Portainer
 
 1. **Stacks → Add stack**, nazwa `zniesione`, metoda **Repository**:
-   - Repository URL: `https://github.com/DavidNiespor/zniesione`, Reference: `refs/heads/main`,
-   - Compose path: `docker-compose.yml`,
-   - repozytorium prywatne: włącz **Authentication** (login GitHub i token z dostępem do repozytorium).
-2. **Environment variables**: dodaj `SECRET_KEY`, `TUNNEL_TOKEN`, `CF_API_TOKEN` i `WG_HOST` (opcjonalnie `WG_PORT`, `KEEP_DAYS`, `TZ`), jak w `.env.example`.
-3. **Deploy the stack**. Pierwsze uruchomienie buduje obraz portalu, to trwa około minuty.
-4. Konto administratora: **Containers → zniesione-zniesione-1 → Console → Connect** (`/bin/sh`),
-   potem `flask --app zniesione create-admin`.
+   Repository URL `https://github.com/DavidNiespor/zniesione`, Reference `refs/heads/main`, Compose path `docker-compose.yml`.
+2. **Environment variables**: dodaj zmienne z punktu 2 (przycisk „Add an environment variable”).
+3. **Deploy the stack**. Pierwsze uruchomienie buduje obraz portalu i pobiera obrazy poczty: kilka minut.
 
-Aktualizacja: **Stacks → zniesione → Pull and redeploy** (można też włączyć „Automatic updates” z GitHuba).
+Aktualizacja: **Stacks → zniesione → Pull and redeploy**.
 
-## 3. Po uruchomieniu
+## 4. Pierwsze uruchomienie: co powinno się stać
 
-1. Sprawdź stan: `docker compose ps` (serwer) albo lista kontenerów w Portainerze. Portal ma być „healthy”,
-   w logach `wireguard` widać „WireGuard działa”, a w Cloudflare tunel ma status „Healthy”.
-2. Zaloguj się jako administrator na `https://twojadomena.pl`.
-3. W logach kontenera `dns` powinno być `wg.twojadomena.pl -> <IP>: created` (albo `unchanged`). Adres i port WireGuard
-   portal bierze ze zmiennych `WG_HOST` i `WG_PORT`, więc w **Administrator → Konfiguracja** nie trzeba ich wpisywać.
-4. Dla każdego sterownika: konfiguracja ESPHome (przycisk w panelu) i **Dane techniczne → Pobierz secrets.yaml**
-   (klucze WireGuard, uzupełnij Wi-Fi). Wgraj oba pliki do sterownika w ESPHome.
+W ciągu kilku minut (logi kontenerów w Portainerze albo `docker compose logs -f <kontener>`):
+1. `poczta-start`: „Utworzono skrzynkę admin@zniesione.pl”, „Poczta przygotowana”, potem kończy pracę (to normalne).
+2. `dns`: lista rekordów z wynikiem `created` (przy kolejnych obiegach już tylko zmiany).
+3. `certyfikat`: „Successfully received certificate”. Do tego czasu `poczta` może się restartować: czeka na certyfikat.
+4. `poczta`: działa (status „healthy”). `wireguard`: „WireGuard działa”. W Cloudflare tunel ma status „Healthy”.
+
+## 5. Jak wejść
+
+| Co | Adres | Login |
+|---|---|---|
+| Portal (administrator) | `https://zniesione.pl` → „Zaloguj / Zarejestruj” | `ADMIN_EMAIL` i `ADMIN_PASSWORD` |
+| Poczta w przeglądarce | `https://poczta.zniesione.pl` | `admin@zniesione.pl` i `MAIL_ADMIN_PASSWORD` |
+
+Program pocztowy lub telefon (Gmail, Outlook, Thunderbird, Poczta w iPhonie): konto **IMAP**
+
+| | Serwer | Port | Szyfrowanie | Login |
+|---|---|---|---|---|
+| Poczta przychodząca (IMAP) | `mail.zniesione.pl` | 993 | SSL/TLS | pełny adres e-mail |
+| Poczta wychodząca (SMTP) | `mail.zniesione.pl` | 465 (SSL/TLS) albo 587 (STARTTLS) | jak obok | pełny adres e-mail, to samo hasło |
+
+Poczta do `postmaster@zniesione.pl` i `abuse@zniesione.pl` trafia do skrzynki administratora.
+
+## 6. Kolejne skrzynki i hasła
+
+Polecenia wpisujesz w konsoli kontenera `poczta` (Portainer: **Containers → zniesione-poczta-1 → Console → Connect**,
+powłoka `/bin/bash`) albo na serwerze z przedrostkiem `sudo docker compose exec poczta`:
+
+```sh
+setup email add jan@zniesione.pl            # nowa skrzynka (zapyta o hasło)
+setup email update admin@zniesione.pl       # zmiana hasła
+setup email list                            # lista skrzynek
+setup alias add sklep@zniesione.pl admin@zniesione.pl   # dodatkowy adres kierowany do istniejącej skrzynki
+setup email del jan@zniesione.pl            # usunięcie skrzynki
+```
+
+Hasło do portalu zmieniasz osobno (konta portalu i poczty są niezależne). Kolejnego administratora portalu dodasz
+w konsoli kontenera `zniesione`: `flask --app zniesione create-admin`.
+
+## 7. Sprawdzenie poczty
+
+1. Wyślij list z `admin@zniesione.pl` na swój adres Gmail i odpowiedz na niego.
+2. W Gmailu: list → ⋮ → **Pokaż oryginał**: SPF, DKIM i DMARC powinny mieć wynik **PASS**.
+3. Dokładny test: wyślij list na adres podany na **mail-tester.com** (cel: 9/10 lub 10/10).
 
 ## Kopie zapasowe
 
-Kontener `kopie` zapisuje kopię bazy raz na dobę do wolumenu `kopie` i usuwa kopie starsze niż `KEEP_DAYS` dni.
-W bazie są też klucze WireGuard, więc kopie przechowuj bezpiecznie. Skopiowanie najnowszych kopii na swój komputer lub dysk:
+Kontener `kopie` zapisuje raz na dobę kopię bazy portalu (konta, zamówienia, harmonogramy, artykuły, klucze WireGuard).
+Pocztę przechowują wolumeny `zniesione_poczta-dane` i `zniesione_poczta-konfig`. Uwzględnij je w kopii całego serwera
+(migawki u dostawcy VPS albo np. `docker run --rm -v zniesione_poczta-dane:/d -v $PWD:/b alpine tar czf /b/poczta.tgz -C /d .`).
 
-```sh
-cd /opt/zniesione && sudo docker compose cp kopie:/backup ./kopie-$(date +%F)
-```
-
-Odtworzenie: `docker compose stop zniesione`, skopiuj wybrany plik jako `/data/zniesione.db`
-(`docker compose cp ./plik.db zniesione:/data/zniesione.db`), potem `docker compose start zniesione`.
+Kopia bazy portalu na dysk: `cd /opt/zniesione && sudo docker compose cp kopie:/backup ./kopie-$(date +%F)`
 
 ## Najczęstsze problemy
 
 | Objaw | Przyczyna i rozwiązanie |
 |---|---|
-| „Bind for 0.0.0.0:… port is already allocated” | Port jest zajęty przez inną usługę. Stack wystawia tylko `WG_PORT` (domyślnie 51820/UDP): jeśli i ten jest zajęty, ustaw inny `WG_PORT` i ten sam port w Konfiguracji admina. |
-| Cloudflare: błąd 502 | Adres usługi w tunelu musi być `http://portal:8000` (nie `https://`, nie `localhost`). |
-| Logowanie nie trzyma sesji | Portal otwarty przez `http://` lub po IP. Używaj `https://` i domeny. |
-| Sterownik „Brak połączenia” | Rekord `wg` z wyłączonym proxy, otwarty port UDP, poprawny adres i port w Konfiguracji, wgrany secrets.yaml. Podgląd tunelu: `docker compose exec wireguard wg show`. |
-| Logi `dns`: „Token nie ma dostępu do strefy” albo „Invalid token” | Token musi mieć szablon „Edit zone DNS” dla Twojej domeny, a `WG_HOST` musi być w tej domenie. |
-| `wireguard` restartuje się | Brak WireGuard w jądrze (`sudo modprobe wireguard`) albo brak `cap_add: NET_ADMIN`. |
-| Po restarcie kontenera `siec` portal nie działa | `docker compose up -d` odtwarza całość; `siec` i tak restartuje się tylko przy aktualizacji Dockera. |
+| „Bind for 0.0.0.0:25 (albo 465, 587, 993, 51820) failed: port is already allocated” | Na serwerze działa już inny serwer poczty lub WireGuard (np. Postfix z systemu: `sudo systemctl disable --now postfix`). |
+| Brak zmiennej, np. „ustaw CF_API_TOKEN” | Uzupełnij zmienne z punktu 2. |
+| Cloudflare: błąd 502 | Adres usługi w tunelu: `http://portal:8000` (portal) i `http://webmail:80` (poczta), nie `https://`. |
+| `poczta` restartuje się dłużej niż 5 minut | Brak certyfikatu: sprawdź logi `certyfikat` (zły token albo token bez uprawnień do strefy). |
+| Poczta nie przychodzi | Port 25 zablokowany u dostawcy, MX wskazuje gdzie indziej (Email Routing) albo zapora. Test: `nc -vz mail.zniesione.pl 25` z innej sieci. |
+| Wysłane listy lądują w spamie | Brak rekordu PTR = `mail.zniesione.pl` u dostawcy serwera; sprawdź też wynik na mail-tester.com. |
+| Logowanie do portalu nie trzyma sesji | Portal otwarty przez `http://` lub po IP. Używaj `https://zniesione.pl`. |
+| Sterownik „Brak połączenia” | Port 51820/UDP, wgrany secrets.yaml; podgląd tunelu: `docker compose exec wireguard wg show`. |
+| Logi `dns`: „Token nie ma dostępu do strefy” / „Invalid token” | Token musi mieć szablon „Edit zone DNS” dla Twojej domeny. |
 | Godziny harmonogramów przesunięte | Zmienna `TZ` musi być `Europe/Warsaw` (domyślnie tak jest). |
-| Zmiana podsieci w Konfiguracji | Uruchom ponownie kontener `wireguard` (nowy adres serwera). Zmieniaj ją tylko przed dodaniem sterowników. |
 
 Uruchamiaj jedną kopię portalu: silnik harmonogramów i limit logowania działają w pamięci procesu.

@@ -11,8 +11,9 @@ słońca), termostat, odczyty temperatury oraz panel administratora z przypisywa
     RUN_SCHEDULER=1 flask --app zniesione run
 
 **Produkcja:** `docker-compose.yml` to pełny stack: portal, serwer WireGuard dla sterowników (klucze i `wg0.conf`
-tworzy portal), tunel Cloudflare i codzienne kopie bazy. Na serwerze: `cp .env.example .env` (uzupełnij),
-`docker compose up -d --build`; w Portainerze: stack z repozytorium. Instrukcja: [docs/WDROZENIE.md](docs/WDROZENIE.md).
+tworzy portal), tunel Cloudflare, rekordy DNS ustawiane automatycznie, serwer poczty `@zniesione.pl` z pocztą
+w przeglądarce (`poczta.zniesione.pl`) i codzienne kopie bazy. Konto administratora portalu i poczty tworzy się samo
+ze zmiennych stacka. Instrukcja: [docs/WDROZENIE.md](docs/WDROZENIE.md).
 
 `/` serwuje interfejs (`static/app.html`, `app.css`, `app.js`). Stara makieta bez backendu jest pod `/prototype`.
 
@@ -135,7 +136,7 @@ Scenariusze do przejścia ręcznie (najlepiej na telefonie lub w trybie telefonu
 9. Rolnik, Więcej, Sterowniki: T-Relay jest domyślny i oznaczony jako najtańszy; T-Relay z Tailscale zostaje odrzucony.
 
 ## Testy automatyczne
-    python -m pytest -q                                  # 63 testy API i logiki
+    python -m pytest -q                                  # 68 testów API i logiki
     cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 73 kroki przez interfejs (jsdom), każdy system
 `run.js` zakłada bazę w katalogu tymczasowym, uruchamia atrapę urządzenia (port 9123) i serwer Flaska (port 8765);
 porty i interpreter zmienisz zmiennymi `DEV_PORT`, `WEB_PORT`, `PYTHON`. `tests/e2e/run.sh` tylko wywołuje `run.js`.

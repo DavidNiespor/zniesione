@@ -74,3 +74,16 @@ def test_backup_is_consistent_and_old_copies_are_removed(tmp_path):
     assert not os.path.exists(old) and os.path.exists(out / "notatka.txt")
     assert sqlite3.connect(new).execute("SELECT x FROM t").fetchone() == (42,)
     con.close()
+
+
+def test_admin_account_created_from_environment_once(tmp_path):
+    import pytest
+    cfg = {"DATABASE": str(tmp_path / "a.db"), "TESTING": True, "ADMIN_EMAIL": "Admin@Zniesione.pl", "ADMIN_PASSWORD": "Haslo-admina-1"}
+    a = create_app(cfg)
+    c = Client(a)
+    r = c.post("/api/auth/login", {"email": "admin@zniesione.pl", "password": "Haslo-admina-1"})
+    assert r.status_code == 200 and r.get_json()["role"] == "admin"
+    create_app({**cfg, "ADMIN_PASSWORD": "inne-haslo-123"})          # restart z innym hasłem: konto bez zmian
+    assert Client(a).post("/api/auth/login", {"email": "admin@zniesione.pl", "password": "Haslo-admina-1"}).status_code == 200
+    with pytest.raises(RuntimeError, match="8 znaków"):
+        create_app({**cfg, "DATABASE": str(tmp_path / "b.db"), "ADMIN_PASSWORD": "krotkie"})

@@ -1,5 +1,5 @@
-# Pełny stack zniesione.pl: portal, serwer WireGuard dla sterowników w kurnikach, tunel Cloudflare, rekord DNS
-# dla WireGuard, kopie zapasowe.
+# Pełny stack zniesione.pl: portal, serwer WireGuard dla sterowników w kurnikach, tunel Cloudflare, rekordy DNS
+# ustawiane automatycznie, serwer poczty z pocztą w przeglądarce, kopie zapasowe.
 #
 # Serwer:     cp .env.example .env  (uzupełnij)  &&  docker compose up -d --build
 # Portainer:  Stacks -> Add stack -> Repository -> to repozytorium, plik docker-compose.yml, zmienne z .env.example
@@ -39,6 +39,8 @@ services:
       WG_CONF: /data/wireguard/wg0.conf   # portal tworzy konfigurację serwera WireGuard i dopisuje sterowniki
       WG_ENDPOINT: ${WG_HOST:-wg.zniesione.pl}   # adres i port WireGuard trafiają do konfiguracji sterowników
       WG_PUBLIC_PORT: ${WG_PORT:-51820}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}        # pierwsze konto administratora portalu (tworzone raz, przy starcie)
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     volumes:
       - zniesione-data:/data
 
@@ -82,8 +84,8 @@ services:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:?ustaw TUNNEL_TOKEN z panelu Cloudflare Zero Trust}
 
   dns:
-    # rekord A dla WireGuard (np. wg.zniesione.pl -> IP serwera, bez proxy) ustawiany w Cloudflare automatycznie;
-    # bez CF_API_TOKEN kontener tylko o tym przypomina, a rekord dodajesz ręcznie
+    # rekordy w Cloudflare ustawiane automatycznie i pilnowane co 10 min: wg.<domena> (WireGuard) oraz poczta:
+    # mail.<domena>, MX, SPF, DKIM (klucz z serwera poczty), DMARC. Istniejących SPF i DMARC nie nadpisuje.
     image: zniesione:latest
     pull_policy: never
     restart: unless-stopped
@@ -92,8 +94,105 @@ services:
     healthcheck:
       disable: true
     environment:
-      CF_API_TOKEN: ${CF_API_TOKEN:-}
+      CF_API_TOKEN: ${CF_API_TOKEN:?ustaw CF_API_TOKEN (token Cloudflare z uprawnieniem Edit zone DNS)}
       WG_HOST: ${WG_HOST:-wg.zniesione.pl}
+      MAIL_DOMAIN: ${MAIL_DOMAIN:-zniesione.pl}
+    volumes:
+      - poczta-konfig:/dms:ro             # klucz DKIM z serwera poczty
+
+  # ---------- poczta: admin@<domena>, poczta w przeglądarce pod poczta.<domena> ----------
+  poczta-start:
+    # jednorazowo przed serwerem poczty: skrzynka administratora, aliasy postmaster@ i abuse@, klucz DKIM
+    image: ghcr.io/docker-mailserver/docker-mailserver:16.0.1
+    restart: "no"
+    entrypoint: ["/bin/bash", "-c"]
+    environment:
+      DOMAIN: ${MAIL_DOMAIN:-zniesione.pl}
+      ADMIN: ${MAIL_ADMIN:-admin}@${MAIL_DOMAIN:-zniesione.pl}
+      PASS: ${MAIL_ADMIN_PASSWORD:?ustaw MAIL_ADMIN_PASSWORD (hasło skrzynki administratora poczty)}
+    volumes:
+      - poczta-konfig:/tmp/docker-mailserver
+    command:
+      - |
+        set -e
+        if ! grep -qs "^$$ADMIN|" /tmp/docker-mailserver/postfix-accounts.cf; then
+          setup email add "$$ADMIN" "$$PASS" && echo "Utworzono skrzynkę $$ADMIN"
+        fi
+        for a in postmaster abuse; do
+          grep -qs "^$$a@$$DOMAIN " /tmp/docker-mailserver/postfix-virtual.cf || setup alias add "$$a@$$DOMAIN" "$$ADMIN"
+        done
+        [ -s "/tmp/docker-mailserver/opendkim/keys/$$DOMAIN/mail.txt" ] || setup config dkim domain "$$DOMAIN"
+        echo "Poczta przygotowana"
+
+  certyfikat:
+    # certyfikat TLS dla mail.<domena> z Let's Encrypt przez DNS Cloudflare (port 80 nie jest potrzebny), odnawiany sam
+    image: certbot/dns-cloudflare:v5.8.0
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    environment:
+      CF_API_TOKEN: ${CF_API_TOKEN:?ustaw CF_API_TOKEN}
+      HOST: mail.${MAIL_DOMAIN:-zniesione.pl}
+      EMAIL: ${MAIL_ADMIN:-admin}@${MAIL_DOMAIN:-zniesione.pl}
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+    command:
+      - |
+        umask 077
+        printf 'dns_cloudflare_api_token = %s\n' "$$CF_API_TOKEN" > /tmp/cloudflare.ini
+        while :; do
+          if certbot certonly --non-interactive --agree-tos -m "$$EMAIL" --dns-cloudflare \
+               --dns-cloudflare-credentials /tmp/cloudflare.ini --dns-cloudflare-propagation-seconds 30 \
+               --keep-until-expiring -d "$$HOST"; then sleep 43200; else echo "Certyfikat: błąd, ponowię za godzinę"; sleep 3600; fi
+        done
+
+  poczta:
+    # serwer poczty (SMTP, IMAP, filtr spamu, DKIM, ochrona przed zgadywaniem haseł); poczta NIE idzie przez Cloudflare
+    image: ghcr.io/docker-mailserver/docker-mailserver:16.0.1
+    hostname: mail.${MAIL_DOMAIN:-zniesione.pl}
+    restart: unless-stopped                # do czasu wydania certyfikatu (ok. 1 min) kontener restartuje się
+    stop_grace_period: 1m
+    depends_on:
+      poczta-start:
+        condition: service_completed_successfully
+    cap_add: [NET_ADMIN]                   # fail2ban
+    environment:
+      TZ: ${TZ:-Europe/Warsaw}
+      SSL_TYPE: letsencrypt
+      POSTMASTER_ADDRESS: postmaster@${MAIL_DOMAIN:-zniesione.pl}
+      SPOOF_PROTECTION: "1"
+      ENABLE_FAIL2BAN: "1"
+      ENABLE_SPAMASSASSIN: "1"
+      ENABLE_CLAMAV: "0"                   # antywirus potrzebuje ok. 1,5 GB RAM; włącz, jeśli serwer ma zapas
+    ports:
+      - "25:25"     # odbiór poczty z innych serwerów
+      - "465:465"   # wysyłanie z programów pocztowych (SSL)
+      - "587:587"   # wysyłanie z programów pocztowych (STARTTLS)
+      - "993:993"   # odbiór w programach pocztowych (IMAP, SSL)
+    volumes:
+      - poczta-dane:/var/mail
+      - poczta-stan:/var/mail-state
+      - poczta-logi:/var/log/mail
+      - poczta-konfig:/tmp/docker-mailserver
+      - letsencrypt:/etc/letsencrypt:ro
+    networks:
+      default:
+        aliases: ["mail.${MAIL_DOMAIN:-zniesione.pl}"]   # webmail łączy się po nazwie z certyfikatu
+
+  webmail:
+    # Roundcube: poczta w przeglądarce; w tunelu Cloudflare dodaj poczta.<domena> -> http://webmail:80
+    image: roundcube/roundcubemail:1.7.5-apache
+    restart: unless-stopped
+    depends_on: [poczta]
+    environment:
+      ROUNDCUBEMAIL_DEFAULT_HOST: ssl://mail.${MAIL_DOMAIN:-zniesione.pl}
+      ROUNDCUBEMAIL_DEFAULT_PORT: "993"
+      ROUNDCUBEMAIL_SMTP_SERVER: tls://mail.${MAIL_DOMAIN:-zniesione.pl}
+      ROUNDCUBEMAIL_SMTP_PORT: "587"
+      ROUNDCUBEMAIL_DB_TYPE: sqlite
+      ROUNDCUBEMAIL_SKIN: elastic
+      ROUNDCUBEMAIL_UPLOAD_MAX_FILESIZE: 25M
+    volumes:
+      - webmail-db:/var/roundcube/db
 
   kopie:
     image: zniesione:latest
@@ -116,3 +215,9 @@ services:
 volumes:
   zniesione-data:          # ta sama nazwa co w poprzedniej wersji: istniejąca baza zostaje
   kopie:
+  poczta-dane:             # skrzynki pocztowe
+  poczta-stan:
+  poczta-logi:
+  poczta-konfig:           # konta, aliasy, klucze DKIM
+  letsencrypt:             # certyfikat mail.<domena>
+  webmail-db:

@@ -100,12 +100,23 @@ def create_app(test_config=None):
                       PROXY_COUNT=int(os.environ.get("PROXY_COUNT") or 0),
                       REAL_IP_HEADER=os.environ.get("REAL_IP_HEADER", ""),
                       WG_CONF=os.environ.get("WG_CONF", ""),
+                      ADMIN_EMAIL=os.environ.get("ADMIN_EMAIL", ""), ADMIN_PASSWORD=os.environ.get("ADMIN_PASSWORD", ""),
                       SEND=sv.send_http, RUN_SCHEDULER=os.environ.get("RUN_SCHEDULER") == "1")
     app.config.update(test_config or {})
     if app.config["PROXY_COUNT"]:  # za odwrotnym proxy lub Cloudflare Tunnel: adres klienta z X-Forwarded-For
         n = app.config["PROXY_COUNT"]
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=n, x_proto=n)
     dbm.init_app(app)
+    if app.config["ADMIN_EMAIL"] and app.config["ADMIN_PASSWORD"]:  # pierwsze konto admina ze zmiennych stacka
+        email = app.config["ADMIN_EMAIL"].strip().lower()
+        if len(app.config["ADMIN_PASSWORD"]) < 8:
+            raise RuntimeError("ADMIN_PASSWORD musi mieć co najmniej 8 znaków")
+        with app.app_context():
+            db = dbm.get()
+            if not db.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():  # istniejącego nie nadpisujemy
+                db.execute("INSERT INTO users(email,pw,role) VALUES(?,?,'admin')", (email, generate_password_hash(app.config["ADMIN_PASSWORD"])))
+                db.commit()
+                app.logger.warning("Utworzono konto administratora %s", email)
     if app.config["WG_CONF"]:  # przy starcie: kontener wireguard czeka na ten plik
         with app.app_context():
             sv.write_wg_conf(dbm.get(), app.config["WG_CONF"])
