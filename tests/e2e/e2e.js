@@ -72,15 +72,24 @@ async function page() {
   ok(await p.wait(() => /Potwierdzone/.test(p.text())), "rolnik potwierdza zamówienie");
   // wydanie zamówienia na dług (następnym razem)
   await p.wait(() => p.btn("Wydaj i rozlicz")); p.click(p.btn("Wydaj i rozlicz"));
-  ok(await p.wait(() => p.$("form[data-f=sale][data-order]") && /Wydanie zamówienia: Anna Nowak/.test(p.text())), "Wydaj i rozlicz: formularz z zamówieniem");
+  ok(await p.wait(() => p.$("form[data-f=sale][data-order]") && /Wydanie zamówienia ze sklepu: Anna Nowak/.test(p.text())), "Wydaj i rozlicz: formularz z zamówieniem");
   const pickPay = (f, m) => { const r = f.querySelector(`[name=method][value=${m}]`); r.checked = true; p.change(r); };
   let sf2 = p.$("form[data-f=sale]"); pickPay(sf2, "later"); p.submit(sf2);
   ok(await p.wait(() => /Zapisano: 42,00 zł · saldo klienta: Dług: 42,00 zł/.test(p.toast()) && /Wydane/.test(p.text())), "zamówienie wydane na dług trafia do kartoteki");
   await p.nav("jaja");
   await p.wait(() => p.$("#f-zbior"));
-  p.setv(p.$("#f-zbior"), "n", "5"); p.submit(p.$("#f-zbior"));
-  ok(await p.wait(() => /Dodano 5 opak. Na stanie: 14/.test(p.toast()) && p.$("[data-stock]").textContent === "14"), "zbiór jaj dodaje opakowania do stanu");
-  ok(await p.wait(() => /Zbiór: 5 opak\./.test(p.$("[data-egglog]").textContent)), "dziennik jaj pokazuje nowy zbiór");
+  // magazyn demo: 180 szt. (12 opak. w sklepie, 30 szt. rezerwy); zamówienie Anny (3 opak.) wydane -> 150 szt.
+  p.setv(p.$("#f-zbior"), "eggs", "50"); p.setv(p.$("#f-zbior"), "damaged", "2"); p.submit(p.$("#f-zbior"));
+  ok(await p.wait(() => /Dodano 48 dobrych jaj \(2 brudnych\/uszkodzonych odłożonych\)\. W magazynie: 198 szt\./.test(p.toast())), "zbiór na sztuki: brudne i uszkodzone nie idą do sprzedaży");
+  ok(await p.wait(() => /Zbiór: 50 szt\. \(w tym 2 brudnych\/uszkodzonych\)/.test(p.$("[data-egglog]").textContent) && /Wolne\s*78 szt\./.test(p.$("[data-pools]").textContent)),
+    "dziennik i stan magazynu: wolne 78 szt.");
+  let al = p.$("form[data-f=alloc]");
+  p.setv(al, "offer_packs", "20"); al.elements.offer_packs.dispatchEvent(new p.w.Event("input", { bubbles: true }));
+  ok(/Za mało jaj: brakuje 32 szt\./.test(al.textContent), "podgląd przydziału ostrzega przed brakiem jaj");
+  p.submit(al);
+  ok(await p.wait(() => /najwyżej 198 szt\./.test(p.toast())), "nie da się ogłosić więcej, niż jest w magazynie");
+  p.setv(al, "offer_packs", "9"); p.setv(al, "reserved", "40"); p.submit(al);
+  ok(await p.wait(() => /W sklepie: 9 opak\., rezerwa: 40 szt\., wolne: 68 szt\./.test(p.toast())), "ogłoszenie w sklepie i rezerwa dla stałych klientów");
   // sprzedaż z kartoteki: klient z długiem płaci więcej, powstaje nadpłata
   await p.nav("sprzedaz");
   await p.wait(() => p.$("form[data-f=sale]"));
@@ -88,19 +97,38 @@ async function page() {
   const zofia = [...sf2.querySelector("[name=client_id]").options].find((o) => /Pani Zofia/.test(o.textContent));
   ok(zofia && /Dług 18,00 zł/.test(zofia.textContent), "lista klientów w sprzedaży pokazuje dług");
   p.setv(sf2, "client_id", zofia.value);
-  ok(sf2.elements.price10.value === "14" && /Saldo klienta teraz: Dług: 18,00 zł/.test(sf2.textContent), "wybór klienta: cena i saldo");
+  ok(sf2.elements.price1.value === "1.40" && /Saldo klienta teraz: Dług: 18,00 zł/.test(sf2.textContent), "wybór klienta: cena za sztukę i saldo");
   const typ = (f, n, v) => { const el = f.elements[n]; el.value = v; el.dispatchEvent(new p.w.Event("input", { bubbles: true })); };
-  typ(sf2, "packs", "2"); typ(sf2, "paid", "50");
+  typ(sf2, "eggs", "20"); typ(sf2, "paid", "50");
   ok(/Do zapłaty: 28,00 zł/.test(sf2.textContent) && /Saldo po sprzedaży: Nadpłata: 4,00 zł/.test(sf2.textContent), "podgląd: do zapłaty i saldo po sprzedaży");
   p.submit(sf2);
-  ok(await p.wait(() => /saldo klienta: Nadpłata: 4,00 zł/.test(p.toast()) && p.$("[data-stock]") && p.$("[data-stock]").textContent === "12"), "sprzedaż gotówką z nadpłatą, stan jaj 12");
+  ok(await p.wait(() => /saldo klienta: Nadpłata: 4,00 zł/.test(p.toast()) && p.$("[data-poolinfo]") && /Wolne: 48 szt\./.test(p.$("[data-poolinfo]").textContent)),
+    "sprzedaż 20 szt. gotówką z nadpłatą, wolne 48 szt.");
   sf2 = p.$("form[data-f=sale]"); p.setv(sf2, "client_id", "");
   ok(sf2.querySelector("[name=method][value=later]").disabled, "klient spoza kartoteki nie może kupić na dług");
-  typ(sf2, "packs", "99"); p.submit(sf2);
-  ok(await p.wait(() => /Na stanie jest tylko 12/.test(p.toast())), "sprzedaż ponad stan jest odrzucona");
+  typ(sf2, "eggs", "99"); p.submit(sf2);
+  ok(await p.wait(() => /Wolnych jaj jest tylko 48 szt\./.test(p.toast())), "sprzedaż ponad wolne jaja jest odrzucona");
+  // stały klient: wydanie z rezerwy
+  await p.nav("zamowienia");
+  ok(await p.wait(() => p.$("[data-subs]") && /Pani Zofia \(sąsiadka\) · 30 szt\. co tydzień/.test(p.$("[data-subs]").textContent) && /do wydania/.test(p.$("[data-subs]").textContent)),
+    "zamówienia cykliczne: stała klientka do wydania dziś");
+  p.click(p.$("[data-subs] [data-act=go]"));
+  ok(await p.wait(() => p.$("form[data-f=sale][data-sub]") && p.$("form[data-f=sale]").elements.source.value === "reserve"
+    && p.$("form[data-f=sale]").elements.eggs.value === "30"), "wydanie stałego klienta: 30 szt. z rezerwy, na dług");
+  p.submit(p.$("form[data-f=sale]"));
+  ok(await p.wait(() => /Zapisano: 42,00 zł · saldo klienta: Dług: 38,00 zł/.test(p.toast()) && p.$("[data-subs]") && /następna dostawa/.test(p.$("[data-subs]").textContent)
+    && !/do wydania/.test(p.$("[data-subs]").textContent)), "po wydaniu: dług w kartotece, następna dostawa za tydzień");
   await p.nav("wiecej");
-  const MORE = ["Sprzedaż", "Klienci", "Oferta", "Stado", "Sterowniki", "Raporty", "Baza wiedzy", "Ustawienia"];
-  ok(await p.wait(() => p.$$(".mtile").length === 8) && MORE.every((t) => p.btn(t)), "Więcej: 8 dużych kafelków (ze Sprzedażą i Bazą wiedzy)");
+  const MORE = ["Sprzedaż", "Klienci", "Oferta", "Stado", "Sterowniki", "Raporty", "Wydatki", "Wyposażenie", "Baza wiedzy", "Ustawienia"];
+  ok(await p.wait(() => p.$$(".mtile").length === 10) && MORE.every((t) => p.btn(t)), "Więcej: 10 dużych kafelków (w tym Wydatki i Wyposażenie)");
+  await p.nav("wydatki");
+  await p.wait(() => p.$("form[data-f=expense]"));
+  const ef = p.$("form[data-f=expense]"); p.setv(ef, "name", "Pszenica"); p.setv(ef, "qty", "100"); p.setv(ef, "unit", "kg"); p.setv(ef, "unit_price", "1.15"); p.submit(ef);
+  ok(await p.wait(() => /Zapisano wydatek: 115,00 zł/.test(p.toast()) && /Pszenica · 115,00 zł/.test(p.$("[data-expenses]").textContent)), "wydatek: wartość z ilości i ceny");
+  await p.nav("wyposazenie");
+  ok(await p.wait(() => /Lampa grzewcza/.test(p.text()) && /Do naprawy/.test(p.text()) && /⚠️ Przegląd/.test(p.text())), "wyposażenie: stan i przypomnienie o przeglądzie");
+  const qf = p.$("form[data-f=equip][data-id='']"); p.setv(qf, "name", "Gniazdo 6-stanowiskowe"); p.setv(qf, "price", "149"); p.submit(qf);
+  ok(await p.wait(() => /Dodano wyposażenie/.test(p.toast()) && /Gniazdo 6-stanowiskowe/.test(p.text())), "dodanie wyposażenia");
   // kartoteka klienta: wpłata i rozliczenie do zera
   await p.nav("klienci");
   ok(await p.wait(() => /Anna Nowak/.test(p.text()) && /Dług 42,00 zł/.test(p.$("[data-client]").textContent) && p.$("a[href^='tel:']")), "Klienci: dłużnicy na górze, z numerem do zadzwonienia");
@@ -112,6 +140,8 @@ async function page() {
   ok(await p.wait(() => /Wpłata zapisana. Dług: 22,00 zł/.test(p.toast()) && /Wpłata · Gotówka/.test(p.$("[data-history]").textContent)), "wpłata częściowa w historii");
   await p.wait(() => p.$("[data-act=settle]")); p.click(p.$("[data-act=settle]"));
   ok(await p.wait(() => /Rozliczony/.test(p.$("[data-balance]").textContent)), "rozlicz do zera");
+  await p.nav("start");
+  ok(await p.wait(() => /Do zrobienia/.test(p.text()) && /Lampa grzewcza/.test(p.text())), "Start: przypomnienie o przeglądzie wyposażenia");
   await p.nav("stado");
   ok(await p.wait(() => /Stado główne/.test(p.text()) && /48 kur/.test(p.text())), "Stado: stado z danych demo");
   const nf = p.$("form[data-f=flock][data-id='']"); p.setv(nf, "name", "Młode"); p.setv(nf, "birds", "20"); p.submit(nf);
@@ -129,7 +159,7 @@ async function page() {
   await p.nav("wiecej"); await p.wait(() => p.$$(".mtile").length === 7);
   p.click(p.$(".mtile[data-v=oferta]"));
   await p.wait(() => p.$("form[data-f=offer]"));
-  const off = p.$("form[data-f=offer]"); p.setv(off, "price10", "15"); p.setv(off, "stock", "20"); p.submit(off);
+  const off = p.$("form[data-f=offer]"); p.setv(off, "price10", "15"); p.submit(off);
   ok(await p.wait(() => /Zapisano ofertę/.test(p.toast())), "rolnik zmienia cenę i stan");
 
   // ---- sterowanie ----

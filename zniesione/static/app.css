@@ -136,6 +136,10 @@ background:var(--sf);color:var(--tx);cursor:pointer;font-size:1rem}
 .chip:has(input:disabled){opacity:.45;cursor:not-allowed}
 .chip:focus-within{outline:3px solid var(--ac);outline-offset:2px}
 
+/* wydatki: pasek udziału kategorii */
+.bar{display:block;height:8px;border-radius:4px;background:var(--grid);margin-top:.3rem;position:relative;overflow:hidden}
+.bar::after{content:"";position:absolute;inset:0 auto 0 0;width:var(--w);background:var(--c-t);border-radius:4px}
+
 /* baza wiedzy */
 textarea{min-height:6rem;line-height:1.5;resize:vertical}
 a.kbcard{display:block;text-decoration:none;color:inherit}a.kbcard:hover{border-color:var(--ac)}a.kbcard h2{margin:.2rem 0}

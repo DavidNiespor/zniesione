@@ -130,7 +130,7 @@ def register(app, need, q, commit, body, err, integer):
         sales = [dict(r) for r in q("SELECT * FROM sales WHERE client_id=? ORDER BY at DESC, id DESC LIMIT 100", cid)]
         orders = [dict(r) for r in q("SELECT * FROM orders WHERE client_id=? AND status IN ('pending','confirmed') ORDER BY id", cid)]
         paid = -sum(r["amount"] for r in led if r["kind"] == "payment") - sum(r["amount"] for r in led if r["kind"] == "refund")
-        stats = dict(purchases=len(sales), packs=sum(s["packs"] for s in sales), value=round(sum(s["total"] for s in sales), 2),
+        stats = dict(purchases=len(sales), packs=sum(s["packs"] for s in sales), eggs=sum(s["eggs"] for s in sales), value=round(sum(s["total"] for s in sales), 2),
                      paid=round(paid, 2), last_sale=sales[0]["at"] if sales else None)
         return jsonify(client_json(old, dict(balance=run, stats=stats, history=history[::-1][:200], sales=sales, orders=orders)))
 

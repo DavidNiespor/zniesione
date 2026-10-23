@@ -39,7 +39,7 @@ def test_debt_partial_payment_settle_and_overpayment(app, farmer):
     k = card(c, cid)
     assert [h["kind"] for h in k["history"]] == ["refund", "sale", "payment", "payment", "payment", "sale"]
     assert [h["balance_after"] for h in k["history"]] == [0, -22, -50, 0, 22, 42]
-    assert k["stats"] == {"purchases": 2, "packs": 5, "value": 70, "paid": 70, "last_sale": k["sales"][0]["at"]}
+    assert k["stats"] == {"purchases": 2, "packs": 5, "eggs": 50, "value": 70, "paid": 70, "last_sale": k["sales"][0]["at"]}
 
 
 def test_payment_at_sale_less_or_more_than_total(app, farmer):
