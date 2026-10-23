@@ -45,11 +45,23 @@ Panel rolnika (telefon jako pierwszy, dolne menu Start, Jaja, Sterowanie, Zamów
 - **Zabezpieczenia w sterowniku** (generowany YAML ESPHome): każdy przekaźnik `restore_mode: ALWAYS_OFF`, przekaźniki drzwi
   z `interlock` i wyłączeniem po `door_run_s` w samym sterowniku, więc drzwi zatrzymają się także bez internetu.
   Po zmianie czasu pracy silnika trzeba ponownie wgrać konfigurację.
-- **Jaja** (zbiór i sprzedaż na miejscu zmieniają stan w sklepie atomowo, dziennik wpisów), **Stado** (stada, liczba kur, rasa,
-  notatki, jaja dziennie i szacunkowa nieśność ze zbiorów), **Zamówienia**, **Klienci** (z zamówień, przycisk Zadzwoń),
-  **Oferta** (cena, opis, położenie gospodarstwa, przycisk „Użyj mojej lokalizacji”), **Sterowniki** (zamawianie, etapy dostawy),
-  **Raporty** (jaja z 7 i 30 dni, sprzedaż z 30 dni i od początku), **Baza wiedzy** (porady z wyszukiwaniem i kategoriami),
-  **Ustawienia** (motyw auto/jasny/czarny zapamiętany w przeglądarce, wylogowanie).
+- **Jaja na sztuki** (jak w e-kurniku): zbiór z liczbą brudnych/uszkodzonych (nie trafiają do sprzedaży), straty, inwentaryzacja.
+  Z magazynu dobrych jaj rolnik przydziela: ile **opakowań ogłasza w sklepie** i ile **sztuk rezerwuje dla stałych klientów**;
+  portal pilnuje, by ogłoszone + zarezerwowane + potwierdzone zamówienia nie przekroczyły magazynu (reszta to „wolne”).
+- **Kartoteka klienta** (jak w e-kurniku): zakupy, wpłaty, sposób płatności (gotówka, przelew, BLIK, następnym razem, z nadpłaty),
+  dług i nadpłata, wpłata z „rozlicz do zera”, zwrot nadpłaty, korekta salda, własna cena klienta, historia z saldem po każdym wpisie.
+  Saldo liczone z historii, więc usunięcie sprzedaży cofa też stan jaj i saldo.
+- **Sprzedaż** w sztukach z wybranej puli (wolne, rezerwa, ogłoszone), wydanie zamówienia ze sklepu, **zamówienia cykliczne**
+  stałych klientów (np. 30 szt. co 7 dni: Wydaj z rezerwy, Pomiń, następny termin ustawia się sam; zamówienie „co tydzień”
+  ze sklepu staje się cyklicznym po potwierdzeniu).
+- **Wydatki** (kategorie, wartość z ilości i ceny) i **Wyposażenie** (stan, przeglądy z przypomnieniem na Starcie);
+  Raporty: wpływy według sposobu płatności, długi, nadpłaty, wydatki i zysk.
+- **Stado** (liczba kur, rasa, notatki, jaja dziennie i nieśność ze zbiorów), **Zamówienia**, **Oferta** (cena, opis, położenie),
+  **Sterowniki** (zamawianie, etapy dostawy), **Baza wiedzy**, **Ustawienia** (motyw auto/jasny/czarny, wylogowanie).
+- **Import z e-kurnika**: `flask --app zniesione import-ekurnik KOPIA.db --email rolnik@... [--gid N]` przenosi klientów
+  z saldami (zgodnymi z e-kurnikiem co do grosza), historię zakupów i wpłat, sprzedaż, zbiory, straty, stan magazynu, stada,
+  wydatki, wyposażenie, zamówienia cykliczne i cenę jajka. W Dockerze: `docker compose cp KOPIA.db zniesione:/data/` i polecenie
+  w konsoli kontenera `zniesione` (ścieżka `/data/KOPIA.db`).
 - Tylko sterowniki z katalogu operatora (`catalog.py`): API odrzuca inne modele, interfejs nie ma innych opcji.
   Najtańszy model (LilyGO T-Relay) jest oznaczony i domyślny, bez ceny w kodzie.
 - Rolnik widzi rodzaje kanałów po polsku, nigdy kluczy `ch1`…; API używa kodów z `catalog.KINDS`.
@@ -78,7 +90,15 @@ ciasteczko sesji `HttpOnly`, `SameSite=Lax`, `Secure` poza trybem testowym (bez 
 | `GET/PUT /api/my/farm` | oferta i położenie (`lat`, `lon`; niewidoczne publicznie) |
 | `GET /api/catalog`, `GET /api/kinds` | katalog z flagami `cheapest`, `default`; polskie nazwy rodzajów |
 | `GET/POST /api/my/flocks`, `PATCH/DELETE …/<id>` | stada: `name`, `birds` (0–100 000), `breed`, `since` (RRRR-MM-DD), `notes` |
-| `GET /api/my/eggs?days=`, `POST /api/my/eggs` | dziennik jaj; `{"kind": "collect" \| "sale", "packs": 1–500}` zmienia stan |
+| `GET /api/my/eggs?days=`, `POST /api/my/eggs` | magazyn i dziennik w sztukach; `kind`: `collect` (`eggs`, `damaged`), `loss`, `inventory` |
+| `POST /api/my/eggs/allocation` | `offer_packs` (opakowania w sklepie), `reserved` (sztuki dla stałych klientów) |
+| `GET/POST /api/my/clients`, `GET/PATCH/DELETE …/<id>` | kartoteka: saldo, statystyki, historia, sprzedaże, aktywne zamówienia |
+| `POST /api/my/clients/<id>/payments`, `…/correction` | wpłata (`settle` = rozlicz do zera), zwrot nadpłaty (`kind: refund`), korekta salda |
+| `GET/POST /api/my/sales`, `DELETE …/<id>` | sprzedaż: `eggs`, `price10`, `discount`, `method`, `paid`, `source`, albo `order_id` / `subscription_id` |
+| `GET/POST /api/my/subscriptions`, `PATCH/DELETE …/<id>`, `POST …/<id>/skip` | zamówienia cykliczne: `client_id`, `eggs`, `every_days`, `next_date`, `method` |
+| `GET/POST /api/my/expenses`, `PATCH/DELETE …/<id>` | wydatki z podsumowaniem według kategorii |
+| `GET/POST /api/my/equipment`, `PATCH/DELETE …/<id>` | wyposażenie: stan (`ok`, `repair`, `broken`, `retired`), przegląd |
+| `GET /api/my/finance?days=` | wpływy według sposobu płatności, sprzedaż, długi, nadpłaty, wydatki, zysk |
 | `GET /api/kb?q=&category=`, `GET /api/kb/<id>` | baza wiedzy (zalogowani; rolnik widzi tylko opublikowane) |
 | `POST /api/admin/kb`, `PUT/DELETE /api/admin/kb/<id>` | artykuły: `title`, `category`, `body`, `published` (tylko admin) |
 
@@ -90,10 +110,11 @@ ciasteczko sesji `HttpOnly`, `SameSite=Lax`, `Secure` poza trybem testowym (bez 
   zasilania w kurniku przekaźniki są wyłączone (`ALWAYS_OFF`), a portal może jeszcze pokazywać stan sprzed awarii.
 - Limit logowania jest w pamięci jednego procesu (gunicorn z 1 workerem, jak w Dockerfile). Za Cloudflare ustaw
   `REAL_IP_HEADER` albo `PROXY_COUNT` (w `docker-compose.yml` są ustawione).
-- Nieśność w Stadzie jest szacunkowa: liczona z zapisanych zbiorów w pełnych opakowaniach po 10 jaj.
+- Nieśność w Stadzie jest szacunkowa: liczona z zapisanych zbiorów (w sztukach, razem z brudnymi i uszkodzonymi).
+- Sklep dla klientów sprzedaje całe opakowania po 10 szt.; sprzedaż na miejscu i stali klienci mogą brać dowolną liczbę sztuk.
 - Hasło API i OTA w secrets.yaml są losowane przy każdym pobraniu (portal ich nie używa); klucze WireGuard są stałe.
 - Poza zakresem: Shelly przez MQTT (sterowanie zwraca błąd „niezaimplementowane”), OTA z portalu, płatności online,
-  reset hasła, e-mail/SMS, integracja z e-kurnik.
+  reset hasła, e-mail/SMS do klientów, receptury paszy i SUPLA z e-kurnika (nie były w zakresie).
 
 ## Windows (PowerShell)
 Potrzebne są dwa okna PowerShella w katalogu projektu. `flask` często nie jest w PATH, więc używaj `python -m flask`.
@@ -136,8 +157,8 @@ Scenariusze do przejścia ręcznie (najlepiej na telefonie lub w trybie telefonu
 9. Rolnik, Więcej, Sterowniki: T-Relay jest domyślny i oznaczony jako najtańszy; T-Relay z Tailscale zostaje odrzucony.
 
 ## Testy automatyczne
-    python -m pytest -q                                  # 68 testów API i logiki
-    cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 73 kroki przez interfejs (jsdom), każdy system
+    python -m pytest -q                                  # 88 testów API i logiki
+    cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 94 kroki przez interfejs (jsdom), każdy system
 `run.js` zakłada bazę w katalogu tymczasowym, uruchamia atrapę urządzenia (port 9123) i serwer Flaska (port 8765);
 porty i interpreter zmienisz zmiennymi `DEV_PORT`, `WEB_PORT`, `PYTHON`. `tests/e2e/run.sh` tylko wywołuje `run.js`.
 Test e2e nie zastępuje sprawdzenia w prawdziwej przeglądarce na telefonie.
