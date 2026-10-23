@@ -127,6 +127,15 @@ pre{overflow-x:auto;background:var(--sf2);border:1px solid var(--ln);border-radi
 .tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,td{text-align:left;padding:.4rem .5rem;border-bottom:1px solid var(--ln)}
 .tabs{display:flex;gap:.4rem;overflow-x:auto;margin-bottom:1rem}.tabs button{white-space:nowrap;flex:none}.tabs button[aria-current="page"]{background:var(--hd);color:var(--hdt)}
 
+/* sprzedaż: sposób płatności */
+.chips{display:flex;flex-wrap:wrap;gap:.5rem}
+.chip{display:flex;align-items:center;gap:.4rem;margin:0;min-height:48px;padding:.4rem .9rem;border:2px solid var(--ln);border-radius:14px;
+background:var(--sf);color:var(--tx);cursor:pointer;font-size:1rem}
+.chip input{width:20px;min-height:20px;height:20px;accent-color:var(--hd)}
+.chip:has(input:checked){border-color:var(--ac);background:var(--wabg);font-weight:650}
+.chip:has(input:disabled){opacity:.45;cursor:not-allowed}
+.chip:focus-within{outline:3px solid var(--ac);outline-offset:2px}
+
 /* baza wiedzy */
 textarea{min-height:6rem;line-height:1.5;resize:vertical}
 a.kbcard{display:block;text-decoration:none;color:inherit}a.kbcard:hover{border-color:var(--ac)}a.kbcard h2{margin:.2rem 0}
