@@ -22,6 +22,7 @@ from . import clients
 from . import ekurnik
 from . import farmbook
 from . import feed
+from . import team
 from . import services as sv
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
@@ -176,6 +177,7 @@ def create_app(test_config=None):
                 if role and u["role"] != role:
                     return err("Brak uprawnień", 403)
                 g.user = u
+                dbm.set_user(dbm.get(), u["id"])
                 return f(*a, **k)
             return w
         return deco
@@ -329,7 +331,8 @@ def create_app(test_config=None):
     @app.get("/api/me")
     @need()
     def me():
-        return jsonify(id=g.user["id"], email=g.user["email"], role=g.user["role"], farm_id=g.user["farm_id"])
+        return jsonify(id=g.user["id"], email=g.user["email"], role=g.user["role"], farm_id=g.user["farm_id"],
+                       name=g.user["name"] or g.user["email"].split("@")[0], owner=bool(g.user["owner"]))
 
     # ---------- rolnik ----------
     @app.route("/api/my/farm", methods=["GET", "PUT"])
@@ -659,6 +662,7 @@ def create_app(test_config=None):
 
     farmbook.register(app, need, q, commit, body, err, integer)
     feed.register(app, need, q, commit, body, err)
+    team.register(app, need, q, commit, body, err)
 
     # ---------- baza wiedzy ----------
     def kb_json(r, full=True):

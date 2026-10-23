@@ -76,11 +76,32 @@ COLUMNS = [
     ("devices", "sensor", "TEXT NOT NULL DEFAULT ''"), ("devices", "sensor_pins", "TEXT NOT NULL DEFAULT ''"),
     ("devices", "wifi_ssid", "TEXT NOT NULL DEFAULT ''"), ("devices", "wifi_password", "TEXT NOT NULL DEFAULT ''"),
     ("devices", "fw_job", "TEXT NOT NULL DEFAULT ''"),
+    ("users", "name", "TEXT NOT NULL DEFAULT ''"), ("users", "owner", "INTEGER NOT NULL DEFAULT 1"),
+    ("eggs", "user_id", "INTEGER"), ("sales", "user_id", "INTEGER"), ("ledger", "user_id", "INTEGER"),
+    ("feed_moves", "user_id", "INTEGER"), ("mixes", "user_id", "INTEGER"), ("expenses", "user_id", "INTEGER"),
     ("channels", "off_at", "TEXT"), ("channels", "want", "INTEGER"),
     ("schedules", "mode", "TEXT NOT NULL DEFAULT 'time'"), ("schedules", "offset_min", "INTEGER NOT NULL DEFAULT 0"),
     ("schedules", "off_mode", "TEXT NOT NULL DEFAULT 'time'"), ("schedules", "off_offset_min", "INTEGER NOT NULL DEFAULT 0"),
     ("schedules", "duration_s", "INTEGER"),
 ]
+
+
+AUTHORED = ("eggs", "sales", "ledger", "feed_moves", "mixes", "expenses")  # wpisy z informacją, kto je zrobił
+
+
+def set_user(db, uid):
+    """Tymczasowe wyzwalacze tego połączenia dopisują user_id do każdego nowego wpisu (kto zbierał, kto sprzedał...)."""
+    db.execute("CREATE TEMP TABLE IF NOT EXISTS cur_user(uid INTEGER)")
+    db.execute("DELETE FROM temp.cur_user")
+    db.execute("INSERT INTO temp.cur_user VALUES(?)", (uid,))
+    for t in AUTHORED:
+        db.execute(f"CREATE TEMP TRIGGER IF NOT EXISTS {t}_author AFTER INSERT ON main.{t} WHEN NEW.user_id IS NULL "
+                   f"BEGIN UPDATE {t} SET user_id=(SELECT uid FROM cur_user) WHERE id=NEW.id; END")
+
+
+def by_sql(alias):
+    """Kolumna by_name: imię albo e-mail osoby, która zrobiła wpis."""
+    return f"(SELECT COALESCE(NULLIF(u.name,''), u.email) FROM users u WHERE u.id={alias}.user_id) AS by_name"
 
 
 def get():

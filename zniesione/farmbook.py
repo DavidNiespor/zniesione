@@ -11,6 +11,8 @@ from datetime import date, datetime, timedelta
 
 from flask import g, jsonify, request
 
+from . import db as dbm
+
 PACK = 10
 EXPENSE_CATEGORIES = ("Pasza i zboże", "Weterynarz", "Witaminy i suplementy", "Ściółka", "Prąd", "Woda", "Opakowania",
                       "Wyposażenie", "Zakup kur", "Inne")
@@ -140,7 +142,8 @@ def register(app, need, q, commit, body, err, integer):
             days = days_arg("30", 365)
             if not days:
                 return err("Parametr days od 1 do 365")
-            rows = q("SELECT id,kind,eggs,damaged,dirty,who,note,at,sale_id FROM eggs WHERE farm_id=? AND at>=? ORDER BY at DESC, id DESC", fid,
+            rows = q(f"SELECT id,kind,eggs,damaged,dirty,who,note,at,sale_id,user_id,{dbm.by_sql('eggs')} FROM eggs WHERE farm_id=? AND at>=? "
+                     "ORDER BY at DESC, id DESC", fid,
                      (datetime.now() - timedelta(days=days)).isoformat()).fetchall()
             by = lambda k, col="eggs": sum(r[col] for r in rows if r["kind"] == k)
             soon = (date.today() + timedelta(days=7)).isoformat()
@@ -338,7 +341,7 @@ def register(app, need, q, commit, body, err, integer):
         days = days_arg("30", 3660)
         if not days:
             return err("Parametr days od 1 do 3660")
-        rows = [dict(r) for r in q("SELECT * FROM expenses WHERE farm_id=? AND date>=? ORDER BY date DESC, id DESC", fid,
+        rows = [dict(r) for r in q(f"SELECT *, {dbm.by_sql('expenses')} FROM expenses WHERE farm_id=? AND date>=? ORDER BY date DESC, id DESC", fid,
                                    (date.today() - timedelta(days=days - 1)).isoformat())]
         cats = {}
         for r in rows:

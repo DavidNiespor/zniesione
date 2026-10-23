@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 from flask import g, jsonify, request
 
+from . import db as dbm
 from . import farmbook
 
 METHODS = ("cash", "transfer", "blik", "later", "balance")   # gotówka, przelew, BLIK, następnym razem, z nadpłaty
@@ -121,12 +122,12 @@ def register(app, need, q, commit, body, err, integer):
             q("DELETE FROM clients WHERE id=?", cid)
             commit()
             return jsonify(ok=True)
-        led = q("SELECT * FROM ledger WHERE client_id=? ORDER BY at, id", cid).fetchall()
+        led = q(f"SELECT *, {dbm.by_sql('ledger')} FROM ledger WHERE client_id=? ORDER BY at, id", cid).fetchall()
         run, history = 0.0, []
         for r in led:  # saldo po każdym wpisie liczone na bieżąco
             run = round(run + r["amount"], 2)
             history.append(dict(id=r["id"], at=r["at"], kind=r["kind"], amount=round(r["amount"], 2), method=r["method"],
-                                sale_id=r["sale_id"], note=r["note"], balance_after=run))
+                                sale_id=r["sale_id"], note=r["note"], balance_after=run, by_name=r["by_name"]))
         sales = [dict(r) for r in q("SELECT * FROM sales WHERE client_id=? ORDER BY at DESC, id DESC LIMIT 100", cid)]
         orders = [dict(r) for r in q("SELECT * FROM orders WHERE client_id=? AND status IN ('pending','confirmed') ORDER BY id", cid)]
         paid = -sum(r["amount"] for r in led if r["kind"] == "payment") - sum(r["amount"] for r in led if r["kind"] == "refund")
@@ -189,7 +190,7 @@ def register(app, need, q, commit, body, err, integer):
             if not days.isdigit() or not 1 <= int(days) <= 366:
                 return err("Parametr days od 1 do 366")
             since = (datetime.now() - timedelta(days=int(days))).isoformat()
-            rows = q("SELECT s.*, c.name AS client_name FROM sales s LEFT JOIN clients c ON c.id=s.client_id "
+            rows = q(f"SELECT s.*, c.name AS client_name, {dbm.by_sql('s')} FROM sales s LEFT JOIN clients c ON c.id=s.client_id "
                      "WHERE s.farm_id=? AND s.at>=? ORDER BY s.at DESC, s.id DESC", fid, since)
             return jsonify([dict(r) for r in rows])
         b = body()

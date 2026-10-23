@@ -6,6 +6,8 @@ from datetime import date, datetime
 
 from flask import g, jsonify, request
 
+from . import db as dbm
+
 CATEGORIES = ("grain", "protein", "mineral", "premix", "additive", "other")  # zboże, białkowe, mineralne, premiks, dodatek, inne
 SEASONS = ("all", "summer", "winter", "spring", "autumn")
 
@@ -68,9 +70,9 @@ def register(app, need, q, commit, body, err):
         fid = g.user["farm_id"]
         items = [item_json(r) for r in q("SELECT * FROM feed_items WHERE farm_id=? ORDER BY category, name", fid)]
         recipes = [recipe_json(r) for r in q("SELECT * FROM recipes WHERE farm_id=? ORDER BY active DESC, name", fid)]
-        moves = [dict(r) for r in q("SELECT m.*, fi.name FROM feed_moves m JOIN feed_items fi ON fi.id=m.item_id WHERE m.farm_id=? "
+        moves = [dict(r) for r in q(f"SELECT m.*, fi.name, {dbm.by_sql('m')} FROM feed_moves m JOIN feed_items fi ON fi.id=m.item_id WHERE m.farm_id=? "
                                     "ORDER BY m.at DESC, m.id DESC LIMIT 50", fid)]
-        mixes = [dict(r) for r in q("SELECT x.*, r.name AS recipe FROM mixes x LEFT JOIN recipes r ON r.id=x.recipe_id WHERE x.farm_id=? "
+        mixes = [dict(r) for r in q(f"SELECT x.*, r.name AS recipe, {dbm.by_sql('x')} FROM mixes x LEFT JOIN recipes r ON r.id=x.recipe_id WHERE x.farm_id=? "
                                     "ORDER BY x.at DESC LIMIT 30", fid)]
         return jsonify(items=items, recipes=recipes, moves=moves, mixes=mixes,
                        value=round(sum(i["stock"] * i["price"] for i in items), 2), low=sum(1 for i in items if i["low"]))
