@@ -26,6 +26,15 @@ CREATE TABLE IF NOT EXISTS flocks(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NU
   birds INTEGER NOT NULL DEFAULT 0, breed TEXT NOT NULL DEFAULT '', since TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS eggs(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, kind TEXT NOT NULL CHECK(kind IN('collect','sale')),
   packs INTEGER NOT NULL, at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS clients(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, name TEXT NOT NULL,
+  phone TEXT NOT NULL DEFAULT '', phone_key TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
+  address TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', price10 REAL, created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sales(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, client_id INTEGER, order_id INTEGER,
+  at TEXT NOT NULL, packs INTEGER NOT NULL, price10 REAL NOT NULL, discount REAL NOT NULL DEFAULT 0, total REAL NOT NULL,
+  method TEXT NOT NULL, paid REAL NOT NULL DEFAULT 0, notes TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, client_id INTEGER NOT NULL, at TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN('sale','payment','refund','correction')), amount REAL NOT NULL, method TEXT NOT NULL DEFAULT '',
+  sale_id INTEGER, note TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS kb(id INTEGER PRIMARY KEY, title TEXT NOT NULL, category TEXT NOT NULL DEFAULT '', body TEXT NOT NULL,
   published INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL, updated TEXT NOT NULL);
 """
@@ -34,6 +43,7 @@ COLUMNS = [
     ("farms", "lat", "REAL"), ("farms", "lon", "REAL"),
     ("devices", "door_run_s", "INTEGER NOT NULL DEFAULT 20"), ("devices", "door", "TEXT"),
     ("devices", "door_want", "INTEGER"), ("devices", "wg_priv", "TEXT"), ("devices", "wg_pub", "TEXT"),
+    ("orders", "client_id", "INTEGER"), ("eggs", "sale_id", "INTEGER"),
     ("channels", "off_at", "TEXT"), ("channels", "want", "INTEGER"),
     ("schedules", "mode", "TEXT NOT NULL DEFAULT 'time'"), ("schedules", "offset_min", "INTEGER NOT NULL DEFAULT 0"),
     ("schedules", "off_mode", "TEXT NOT NULL DEFAULT 'time'"), ("schedules", "off_offset_min", "INTEGER NOT NULL DEFAULT 0"),

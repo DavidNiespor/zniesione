@@ -16,6 +16,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import catalog as cat
 from . import db as dbm
+from . import clients
 from . import services as sv
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
@@ -120,6 +121,8 @@ def create_app(test_config=None):
     if app.config["WG_CONF"]:  # przy starcie: kontener wireguard czeka na ten plik
         with app.app_context():
             sv.write_wg_conf(dbm.get(), app.config["WG_CONF"])
+    with app.app_context():
+        clients.backfill(dbm.get())
     fails, fails_lock = {}, threading.Lock()  # nieudane logowania: klucz -> czasy prób (pamięć procesu)
 
     def q(sql, *a):
@@ -256,8 +259,9 @@ def create_app(test_config=None):
         mode, pickup = b.get("mode", "once"), b.get("pickup", "pickup")
         if mode not in MODES or pickup not in PICKUPS:
             return err("Niepoprawny rodzaj zamówienia lub odbioru")
-        oid = q("INSERT INTO orders(farm_id,name,phone,qty,mode,pickup,total,created) VALUES(?,?,?,?,?,?,?,?)",
-                fid, name, phone, qty, mode, pickup, qty * f["price10"], datetime.now().isoformat()).lastrowid
+        oid = q("INSERT INTO orders(farm_id,name,phone,qty,mode,pickup,total,created,client_id) VALUES(?,?,?,?,?,?,?,?,?)",
+                fid, name, phone, qty, mode, pickup, qty * f["price10"], datetime.now().isoformat(),
+                clients.ensure_client(dbm.get(), fid, name, phone)).lastrowid  # klient trafia do kartoteki rolnika
         commit()
         return jsonify(id=oid, status="pending", total=qty * f["price10"]), 201
 
@@ -589,6 +593,8 @@ def create_app(test_config=None):
         commit()
         return jsonify(ok=True)
 
+    clients.register(app, need, q, commit, body, err, integer)
+
     # ---------- stado i jaja ----------
     FLOCK = dict(name="", birds=0, breed="", since="", notes="")
 
@@ -848,6 +854,21 @@ def create_app(test_config=None):
         for i, packs in enumerate((3, 4, 3, 4, 4, 3, 3)):  # zbiory z ostatniego tygodnia (stan farmy bez zmian)
             q("INSERT INTO eggs(farm_id,kind,packs,at) VALUES(1,'collect',?,?)", packs,
               (datetime.now() - timedelta(days=7 - i, hours=-2)).isoformat())
+        for name, phone, price, history in (  # kartoteka: dług, nadpłata, stały klient z własną ceną
+                ("Pani Zofia (sąsiadka)", "601202303", None, [("sale", 28, "later", 6), ("payment", -10, "cash", 3)]),
+                ("Pan Marek", "602404505", None, [("sale", 14, "cash", 5), ("payment", -24, "cash", 5)]),
+                ("Sklep „Lipka”", "603606707", 12.0, [("sale", 60, "transfer", 2), ("payment", -60, "transfer", 2)])):
+            cid = q("INSERT INTO clients(farm_id,name,phone,phone_key,price10,created) VALUES(1,?,?,?,?,?)",
+                    name, phone, clients.phone_key(phone), price, datetime.now().isoformat(timespec="seconds")).lastrowid
+            sid = None
+            for kind, amount, method, ago in history:
+                at = (datetime.now() - timedelta(days=ago)).isoformat(timespec="seconds")
+                if kind == "sale":
+                    p10 = price or 14
+                    sid = q("INSERT INTO sales(farm_id,client_id,at,packs,price10,total,method,paid) VALUES(1,?,?,?,?,?,?,?)",
+                            cid, at, round(amount / p10), p10, amount, method, 0 if method == "later" else amount).lastrowid
+                q("INSERT INTO ledger(farm_id,client_id,at,kind,amount,method,sale_id,note) VALUES(1,?,?,?,?,?,?,?)", cid, at, kind,
+                  amount, "" if kind == "sale" else method, sid, "Sprzedaż" if kind == "sale" else "Wpłata")
         now = datetime.now().isoformat(timespec="seconds")
         for title, cat_, text, pub in KB_DEMO:
             q("INSERT INTO kb(title,category,body,published,created,updated) VALUES(?,?,?,?,?,?)", title, cat_, text, pub, now, now)

@@ -1,0 +1,292 @@
+"""Kartoteka klientów (jak w e-kurniku): zakupy, wpłaty, sposób płatności, dług i nadpłata.
+
+Saldo klienta to suma wpisów w tabeli ledger: sprzedaż zwiększa saldo, wpłata zmniejsza. Saldo > 0 to dług
+(klient ma zapłacić), saldo < 0 to nadpłata (klient ma zapas na kolejne zakupy albo do zwrotu). Saldo nie jest
+przechowywane osobno, więc po usunięciu sprzedaży zawsze się zgadza."""
+import re
+from datetime import datetime, timedelta
+
+from flask import g, jsonify, request
+
+METHODS = ("cash", "transfer", "blik", "later", "balance")   # gotówka, przelew, BLIK, następnym razem, z nadpłaty
+PAID_NOW = ("cash", "transfer", "blik")
+CLIENT = dict(name="", phone="", email="", address="", notes="", price10=None)
+
+
+def money(v, lo=0, hi=100000):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi
+
+
+def phone_key(phone):
+    return re.sub(r"\D", "", phone or "")[-9:]
+
+
+def now():
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def ensure_client(db, farm_id, name, phone):
+    """Klient z zamówienia w sklepie: ten sam numer telefonu = ten sam klient w kartotece."""
+    key = phone_key(phone)
+    r = db.execute("SELECT id FROM clients WHERE farm_id=? AND phone_key=? AND phone_key!=''", (farm_id, key)).fetchone()
+    if r:
+        return r["id"]
+    return db.execute("INSERT INTO clients(farm_id,name,phone,phone_key,created) VALUES(?,?,?,?,?)",
+                      (farm_id, name.strip()[:100], phone.strip(), key, now())).lastrowid
+
+
+def backfill(db):
+    """Zamówienia sprzed kartoteki: dopisz klientów (raz, przy starcie)."""
+    for o in db.execute("SELECT id, farm_id, name, phone FROM orders WHERE client_id IS NULL").fetchall():
+        db.execute("UPDATE orders SET client_id=? WHERE id=?", (ensure_client(db, o["farm_id"], o["name"], o["phone"]), o["id"]))
+    db.commit()
+
+
+def register(app, need, q, commit, body, err, integer):
+    def client_row(cid):
+        return q("SELECT * FROM clients WHERE id=? AND farm_id=?", cid, g.user["farm_id"]).fetchone()
+
+    def balance(cid):
+        return round(q("SELECT COALESCE(SUM(amount),0) FROM ledger WHERE client_id=?", cid).fetchone()[0], 2)
+
+    def client_json(c, extra=None):
+        return dict(id=c["id"], name=c["name"], phone=c["phone"], email=c["email"], address=c["address"],
+                    notes=c["notes"], price10=c["price10"], created=c["created"], **(extra or {}))
+
+    def client_check(b, old):
+        c = {**CLIENT, **({k: old[k] for k in CLIENT} if old else {}), **{k: b[k] for k in CLIENT if k in b}}
+        for k, n in (("name", 100), ("phone", 20), ("email", 120), ("address", 200), ("notes", 1000)):
+            if not isinstance(c[k], str) or len(c[k]) > n:
+                return None, f"Pole {k} może mieć do {n} znaków"
+            c[k] = c[k].strip()
+        if not c["name"]:
+            return None, "Podaj imię i nazwisko lub nazwę klienta"
+        if c["phone"] and not re.fullmatch(r"\+?[0-9 ]{7,15}", c["phone"]):
+            return None, "Niepoprawny telefon"
+        if c["email"] and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", c["email"]):
+            return None, "Niepoprawny e-mail"
+        if c["price10"] is not None and not money(c["price10"], 0, 1000):
+            return None, "Cena za 10 szt. od 0 do 1000 zł albo puste pole (cena z oferty)"
+        dup = q("SELECT id FROM clients WHERE farm_id=? AND phone_key=? AND phone_key!='' AND id!=?",
+                g.user["farm_id"], phone_key(c["phone"]), old["id"] if old else 0).fetchone()
+        if dup:
+            return None, "Klient z tym numerem telefonu jest już w kartotece"
+        return c, None
+
+    @app.route("/api/my/clients", methods=["GET", "POST"])
+    @need("farmer")
+    def clients():
+        fid = g.user["farm_id"]
+        if request.method == "POST":
+            c, msg = client_check(body(), None)
+            if msg:
+                return err(msg, 409 if "już" in msg else 400)
+            cid = q("INSERT INTO clients(farm_id,name,phone,phone_key,email,address,notes,price10,created) VALUES(?,?,?,?,?,?,?,?,?)",
+                    fid, c["name"], c["phone"], phone_key(c["phone"]), c["email"], c["address"], c["notes"], c["price10"], now()).lastrowid
+            commit()
+            return jsonify(client_json(client_row(cid), {"balance": 0})), 201
+        s = request.args.get("q", "").strip().casefold()
+        rows = q("""SELECT c.*, COALESCE((SELECT SUM(amount) FROM ledger l WHERE l.client_id=c.id),0) AS bal,
+                      (SELECT COUNT(*) FROM sales s WHERE s.client_id=c.id) AS n,
+                      (SELECT COALESCE(SUM(packs),0) FROM sales s WHERE s.client_id=c.id) AS packs,
+                      (SELECT COALESCE(SUM(total),0) FROM sales s WHERE s.client_id=c.id) AS value,
+                      (SELECT MAX(at) FROM sales s WHERE s.client_id=c.id) AS last_sale,
+                      (SELECT COUNT(*) FROM orders o WHERE o.client_id=c.id AND o.mode!='once') AS regular
+                    FROM clients c WHERE c.farm_id=? ORDER BY c.name""", fid).fetchall()
+        rows = [r for r in rows if not s or s in f"{r['name']} {r['phone']} {r['email']}".casefold()]
+        return jsonify([client_json(r, dict(balance=round(r["bal"], 2), purchases=r["n"], packs=r["packs"],
+                                            value=round(r["value"], 2), last_sale=r["last_sale"], regular=bool(r["regular"])))
+                        for r in rows])
+
+    @app.route("/api/my/clients/<int:cid>", methods=["GET", "PATCH", "DELETE"])
+    @need("farmer")
+    def client(cid):
+        old = client_row(cid)
+        if not old:
+            return err("Nie znaleziono", 404)
+        if request.method == "PATCH":
+            c, msg = client_check(body(), old)
+            if msg:
+                return err(msg, 409 if "już" in msg else 400)
+            q("UPDATE clients SET name=?,phone=?,phone_key=?,email=?,address=?,notes=?,price10=? WHERE id=?",
+              c["name"], c["phone"], phone_key(c["phone"]), c["email"], c["address"], c["notes"], c["price10"], cid)
+            commit()
+            return jsonify(client_json(client_row(cid), {"balance": balance(cid)}))
+        if request.method == "DELETE":
+            if q("SELECT 1 FROM sales WHERE client_id=? UNION SELECT 1 FROM ledger WHERE client_id=?", cid, cid).fetchone():
+                return err("Klient ma historię zakupów lub wpłat, więc nie można go usunąć", 409)
+            q("UPDATE orders SET client_id=NULL WHERE client_id=?", cid)
+            q("DELETE FROM clients WHERE id=?", cid)
+            commit()
+            return jsonify(ok=True)
+        led = q("SELECT * FROM ledger WHERE client_id=? ORDER BY at, id", cid).fetchall()
+        run, history = 0.0, []
+        for r in led:  # saldo po każdym wpisie liczone na bieżąco
+            run = round(run + r["amount"], 2)
+            history.append(dict(id=r["id"], at=r["at"], kind=r["kind"], amount=round(r["amount"], 2), method=r["method"],
+                                sale_id=r["sale_id"], note=r["note"], balance_after=run))
+        sales = [dict(r) for r in q("SELECT * FROM sales WHERE client_id=? ORDER BY at DESC, id DESC LIMIT 100", cid)]
+        orders = [dict(r) for r in q("SELECT * FROM orders WHERE client_id=? AND status IN ('pending','confirmed') ORDER BY id", cid)]
+        paid = -sum(r["amount"] for r in led if r["kind"] == "payment") - sum(r["amount"] for r in led if r["kind"] == "refund")
+        stats = dict(purchases=len(sales), packs=sum(s["packs"] for s in sales), value=round(sum(s["total"] for s in sales), 2),
+                     paid=round(paid, 2), last_sale=sales[0]["at"] if sales else None)
+        return jsonify(client_json(old, dict(balance=run, stats=stats, history=history[::-1][:200], sales=sales, orders=orders)))
+
+    @app.post("/api/my/clients/<int:cid>/payments")
+    @need("farmer")
+    def payment(cid):
+        if not client_row(cid):
+            return err("Nie znaleziono", 404)
+        b, bal = body(), balance(cid)
+        kind, method = b.get("kind", "payment"), b.get("method", "cash")
+        if kind not in ("payment", "refund"):
+            return err("Rodzaj: payment (wpłata) albo refund (zwrot nadpłaty)")
+        if method not in PAID_NOW:
+            return err("Sposób płatności: cash, transfer albo blik")
+        note = b.get("note", "")
+        if not isinstance(note, str) or len(note) > 200:
+            return err("Opis do 200 znaków")
+        amount = b.get("amount")
+        if b.get("settle") is True:  # „rozlicz do zera”: wpłata równa długowi
+            if bal <= 0:
+                return err("Klient nie ma długu do rozliczenia", 409)
+            amount, kind = bal, "payment"
+        if not money(amount, 0.01, 100000):
+            return err("Kwota od 0,01 do 100 000 zł")
+        if kind == "refund" and amount > round(-bal, 2) + 0.005:
+            return err(f"Nadpłata klienta to tylko {max(0, -bal):.2f} zł", 409)
+        q("INSERT INTO ledger(farm_id,client_id,at,kind,amount,method,note) VALUES(?,?,?,?,?,?,?)", g.user["farm_id"], cid, now(),
+          kind, round(-amount if kind == "payment" else amount, 2), method, note.strip() or ("Wpłata" if kind == "payment" else "Zwrot nadpłaty"))
+        commit()
+        return jsonify(balance=balance(cid)), 201
+
+    @app.post("/api/my/clients/<int:cid>/correction")
+    @need("farmer")
+    def correction(cid):
+        if not client_row(cid):
+            return err("Nie znaleziono", 404)
+        b = body()
+        if not money(b.get("balance"), -100000, 100000):
+            return err("Nowe saldo od -100 000 do 100 000 zł (minus to nadpłata)")
+        note = b.get("note", "")
+        if not isinstance(note, str) or not note.strip() or len(note) > 200:
+            return err("Podaj powód korekty (do 200 znaków)")
+        diff = round(b["balance"] - balance(cid), 2)
+        if diff:
+            q("INSERT INTO ledger(farm_id,client_id,at,kind,amount,note) VALUES(?,?,?,?,?,?)", g.user["farm_id"], cid, now(),
+              "correction", diff, note.strip())
+            commit()
+        return jsonify(balance=balance(cid))
+
+    @app.route("/api/my/sales", methods=["GET", "POST"])
+    @need("farmer")
+    def sales():
+        fid = g.user["farm_id"]
+        if request.method == "GET":
+            days = request.args.get("days", "30")
+            if not days.isdigit() or not 1 <= int(days) <= 366:
+                return err("Parametr days od 1 do 366")
+            since = (datetime.now() - timedelta(days=int(days))).isoformat()
+            rows = q("SELECT s.*, c.name AS client_name FROM sales s LEFT JOIN clients c ON c.id=s.client_id "
+                     "WHERE s.farm_id=? AND s.at>=? ORDER BY s.at DESC, s.id DESC", fid, since)
+            return jsonify([dict(r) for r in rows])
+        b = body()
+        method = b.get("method", "cash")
+        if method not in METHODS:
+            return err("Sposób płatności: cash, transfer, blik, later (następnym razem) albo balance (z nadpłaty)")
+        c, o = None, None
+        if b.get("order_id") is not None:  # wydanie potwierdzonego zamówienia: jaja zostały już odjęte ze stanu
+            o = q("SELECT * FROM orders WHERE id=? AND farm_id=?", b["order_id"], fid).fetchone() if integer(b["order_id"], 1, 10 ** 9) else None
+            if not o:
+                return err("Nie znaleziono zamówienia", 404)
+            if o["status"] != "confirmed":
+                return err("Wydać można tylko potwierdzone zamówienie, które nie zostało jeszcze wydane", 409)
+            c = client_row(o["client_id"]) if o["client_id"] else None
+            packs, price10, discount, total = o["qty"], round(o["total"] / o["qty"], 2), 0, round(o["total"], 2)
+        else:
+            if b.get("client_id") is not None:
+                c = client_row(b["client_id"]) if integer(b["client_id"], 1, 10 ** 9) else None
+                if not c:
+                    return err("Nieznany klient")
+            packs = b.get("packs")
+            if not integer(packs, 1, 500):
+                return err("Liczba opakowań od 1 do 500")
+            farm_price = q("SELECT price10 FROM farms WHERE id=?", fid).fetchone()["price10"]
+            price10 = b.get("price10", c["price10"] if c and c["price10"] is not None else farm_price)
+            discount = b.get("discount", 0)
+            if not money(price10, 0, 1000):
+                return err("Cena za 10 szt. od 0 do 1000 zł")
+            if not money(discount, 0, 100000):
+                return err("Rabat nie może być ujemny")
+            total = round(packs * price10 - discount, 2)
+            if total < 0:
+                return err("Rabat jest większy niż wartość sprzedaży")
+        if method in ("later", "balance") and not c:
+            return err("Sprzedaż na dług lub z nadpłaty wymaga klienta z kartoteki")
+        paid = b.get("paid", total if method in PAID_NOW else 0)
+        if not money(paid, 0, 100000):
+            return err("Zapłacona kwota od 0 do 100 000 zł")
+        if method not in PAID_NOW and paid:
+            return err("Przy sprzedaży na dług lub z nadpłaty nie podaje się wpłaty; wybierz gotówkę, przelew albo BLIK")
+        if not c and abs(paid - total) > 0.005:
+            return err("Klient spoza kartoteki musi zapłacić całość; dodaj go do kartoteki, żeby zapisać dług lub nadpłatę")
+        notes = b.get("notes", "")
+        if not isinstance(notes, str) or len(notes) > 200:
+            return err("Uwagi do 200 znaków")
+        if o:
+            if not q("UPDATE orders SET status='delivered' WHERE id=? AND status='confirmed'", o["id"]).rowcount:
+                return err("Zamówienie zostało już wydane", 409)
+        elif not q("UPDATE farms SET stock=stock-? WHERE id=? AND stock>=?", packs, fid, packs).rowcount:
+            return err(f"Na stanie jest tylko {q('SELECT stock FROM farms WHERE id=?', fid).fetchone()['stock']} opak.", 409)
+        at = now()
+        sid = q("INSERT INTO sales(farm_id,client_id,order_id,at,packs,price10,discount,total,method,paid,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                fid, c["id"] if c else None, o["id"] if o else None, at, packs, price10, discount, total, method, round(paid, 2), notes.strip()).lastrowid
+        if not o:
+            q("INSERT INTO eggs(farm_id,kind,packs,at,sale_id) VALUES(?,?,?,?,?)", fid, "sale", packs, at, sid)
+        if c:
+            q("INSERT INTO ledger(farm_id,client_id,at,kind,amount,sale_id,note) VALUES(?,?,?,?,?,?,?)", fid, c["id"], at, "sale",
+              total, sid, f"{packs} opak. × {price10:.2f} zł" + (f", rabat {discount:.2f} zł" if discount else "")
+              + (f", zamówienie nr {o['id']}" if o else ""))
+            if paid:
+                q("INSERT INTO ledger(farm_id,client_id,at,kind,amount,method,sale_id,note) VALUES(?,?,?,?,?,?,?,?)", fid, c["id"], at,
+                  "payment", round(-paid, 2), method, sid, "Wpłata przy sprzedaży")
+        commit()
+        stock = q("SELECT stock FROM farms WHERE id=?", fid).fetchone()["stock"]
+        return jsonify(id=sid, total=total, paid=round(paid, 2), stock=stock, balance=balance(c["id"]) if c else None), 201
+
+    @app.delete("/api/my/sales/<int:sid>")
+    @need("farmer")
+    def sale_delete(sid):
+        fid = g.user["farm_id"]
+        s = q("SELECT * FROM sales WHERE id=? AND farm_id=?", sid, fid).fetchone()
+        if not s:
+            return err("Nie znaleziono", 404)
+        if s["order_id"]:
+            q("UPDATE orders SET status='confirmed' WHERE id=?", s["order_id"])
+        else:
+            q("UPDATE farms SET stock=stock+? WHERE id=?", s["packs"], fid)
+            q("DELETE FROM eggs WHERE sale_id=?", sid)
+        q("DELETE FROM ledger WHERE sale_id=?", sid)
+        q("DELETE FROM sales WHERE id=?", sid)
+        commit()
+        return jsonify(ok=True, balance=balance(s["client_id"]) if s["client_id"] else None)
+
+    @app.get("/api/my/finance")
+    @need("farmer")
+    def finance():
+        fid = g.user["farm_id"]
+        days = request.args.get("days", "30")
+        if not days.isdigit() or not 1 <= int(days) <= 366:
+            return err("Parametr days od 1 do 366")
+        since = (datetime.now() - timedelta(days=int(days))).isoformat()
+        got = {m: 0.0 for m in PAID_NOW}
+        for r in q("SELECT kind, method, amount FROM ledger WHERE farm_id=? AND at>=? AND kind IN ('payment','refund')", fid, since):
+            got[r["method"]] = got.get(r["method"], 0) - r["amount"]
+        for r in q("SELECT method, paid FROM sales WHERE farm_id=? AND at>=? AND client_id IS NULL", fid, since):
+            got[r["method"]] = got.get(r["method"], 0) + r["paid"]
+        bals = [r[0] for r in q("SELECT SUM(amount) FROM ledger WHERE farm_id=? GROUP BY client_id", fid)]
+        sv = q("SELECT COALESCE(SUM(total),0), COALESCE(SUM(packs),0), COUNT(*) FROM sales WHERE farm_id=? AND at>=?", fid, since).fetchone()
+        return jsonify(days=int(days), received={k: round(v, 2) for k, v in got.items()}, received_total=round(sum(got.values()), 2),
+                       sales_value=round(sv[0], 2), sales_packs=sv[1], sales_count=sv[2],
+                       debts=round(sum(b for b in bals if b > 0.005), 2), debtors=sum(1 for b in bals if b > 0.005),
+                       overpaid=round(-sum(b for b in bals if b < -0.005), 2))
