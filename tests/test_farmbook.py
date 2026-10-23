@@ -183,3 +183,39 @@ def test_gifts_are_tracked_by_recipient(app, farmer):
     e = c.get("/api/my/eggs").get_json()
     assert e["given"] == 20 and e["given_to"] == {"Mama": 14, "Sąsiad Jan": 6} and e["stock"]["free"] == 0
     assert e["recipients"][0] == "Mama"
+
+
+def test_collection_reminder_email_and_settings(app, farmer, farmer2):
+    from datetime import datetime
+    from zniesione import db as dbm, farmbook
+    c, fid = farmer
+    sent = []
+    app.config["MAIL"] = lambda cfg, to, subj, text: (sent.append((to, subj)), (True, None))[1]
+    assert c.get("/api/my/settings").get_json() == {"remind_on": True, "remind_hour": 19, "email": "a@x.pl", "mail_configured": False}
+    for bad in ({"remind_hour": 4}, {"remind_hour": "19"}, {"remind_on": "tak"}):
+        assert c.put("/api/my/settings", bad).status_code == 400, bad
+    c2 = farmer2[0]
+    c2.put("/api/my/settings", {"remind_on": False})
+    today = datetime.now().replace(minute=0, second=0, microsecond=0)
+    with app.app_context():
+        assert farmbook.reminders(app, dbm.get(), today.replace(hour=18)) == []              # przed 19:00 nic
+        assert farmbook.reminders(app, dbm.get(), today.replace(hour=19)) == [fid]           # brak zbioru: e-mail
+        assert farmbook.reminders(app, dbm.get(), today.replace(hour=20)) == []              # raz dziennie
+    assert sent == [("a@x.pl", "Wpisz dzisiejszy zbiór jaj")]                                  # farma 2 ma wyłączone
+    c.put("/api/my/settings", {"remind_hour": 6})
+    with app.app_context():
+        dbm.get().execute("UPDATE farms SET remind_sent=''")
+        dbm.get().commit()
+    c.post("/api/my/eggs", {"kind": "collect", "eggs": 30})                                  # zbiór wpisany: bez e-maila
+    with app.app_context():
+        assert farmbook.reminders(app, dbm.get(), today.replace(hour=21)) == []
+    app.config["MAIL"] = lambda cfg, to, subj, text: (False, "serwer poczty nie odpowiada")
+    with app.app_context():
+        dbm.get().execute("DELETE FROM eggs"); dbm.get().commit()
+        assert farmbook.reminders(app, dbm.get(), today.replace(hour=21)) == []              # błąd: spróbuje ponownie
+        assert dbm.get().execute("SELECT remind_sent FROM farms WHERE id=?", (fid,)).fetchone()[0] == ""
+
+
+def test_send_mail_without_smtp_is_skipped():
+    from zniesione import farmbook
+    assert farmbook.send_mail({}, "a@x.pl", "T", "x") == (False, "Brak SMTP_HOST")

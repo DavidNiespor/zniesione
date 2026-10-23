@@ -41,6 +41,12 @@ services:
       WG_PUBLIC_PORT: ${WG_PORT:-51820}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}        # pierwsze konto administratora portalu (tworzone raz, przy starcie)
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # e-maile portalu (np. przypomnienie o zbiorze o 19:00) przez serwer poczty ze stacka
+      SMTP_HOST: mail.${MAIL_DOMAIN:-zniesione.pl}
+      SMTP_PORT: "587"
+      SMTP_USER: ${MAIL_ADMIN:-admin}@${MAIL_DOMAIN:-zniesione.pl}
+      SMTP_PASSWORD: ${MAIL_ADMIN_PASSWORD:-}
+      MAIL_FROM: "zniesione.pl <${MAIL_ADMIN:-admin}@${MAIL_DOMAIN:-zniesione.pl}>"
     volumes:
       - zniesione-data:/data
 

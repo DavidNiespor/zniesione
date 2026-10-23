@@ -66,7 +66,67 @@ def subscription_from_order(db, order):
                        "later", "Z zamówienia w sklepie", now())).lastrowid
 
 
+def send_mail(cfg, to, subject, text):
+    """E-mail przez serwer poczty ze stacka (SMTP z STARTTLS). Bez SMTP_HOST nic nie wysyła (zostaje przypomnienie w aplikacji)."""
+    import smtplib
+    from email.message import EmailMessage
+    host = cfg.get("SMTP_HOST")
+    if not host:
+        return False, "Brak SMTP_HOST"
+    m = EmailMessage()
+    m["From"], m["To"], m["Subject"] = cfg.get("MAIL_FROM") or cfg.get("SMTP_USER"), to, subject
+    m.set_content(text)
+    try:
+        with smtplib.SMTP(host, int(cfg.get("SMTP_PORT") or 587), timeout=20) as s:
+            s.starttls()
+            if cfg.get("SMTP_USER"):
+                s.login(cfg["SMTP_USER"], cfg.get("SMTP_PASSWORD", ""))
+            s.send_message(m)
+        return True, None
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)
+
+
+def reminders(app, db, now=None):
+    """Przypomnienie o wpisaniu zbioru: po ustawionej godzinie (domyślnie 19:00), jeśli dziś nie ma wpisu zbioru. Raz dziennie."""
+    now = now or datetime.now()
+    today, sent = now.date().isoformat(), []
+    for f in db.execute("SELECT id, name, remind_hour FROM farms WHERE remind_on=1 AND remind_sent!=? AND remind_hour<=?", (today, now.hour)).fetchall():
+        if db.execute("SELECT 1 FROM eggs WHERE farm_id=? AND kind='collect' AND at>=?", (f["id"], today)).fetchone():
+            continue
+        to = [u["email"] for u in db.execute("SELECT email FROM users WHERE farm_id=? AND role='farmer'", (f["id"],))]
+        ok = bool(to)
+        for t in to:
+            ok = app.config["MAIL"](app.config, t, "Wpisz dzisiejszy zbiór jaj",
+                                    f"Dzień dobry,\n\nw gospodarstwie „{f['name']}” nie ma jeszcze wpisu dzisiejszego zbioru jaj.\n"
+                                    "Wpisz go w portalu: Jaja → Zbiór jaj.\n\nzniesione.pl\n"
+                                    "(Godzinę przypomnienia zmienisz w Ustawieniach.)")[0] and ok
+        if ok:  # nieudane spróbuje się wysłać przy kolejnym obiegu
+            db.execute("UPDATE farms SET remind_sent=? WHERE id=?", (today, f["id"]))
+            sent.append(f["id"])
+    db.commit()
+    return sent
+
+
 def register(app, need, q, commit, body, err, integer):
+    @app.route("/api/my/settings", methods=["GET", "PUT"])
+    @need("farmer")
+    def settings():
+        fid = g.user["farm_id"]
+        if request.method == "PUT":
+            b = body()
+            if "remind_on" in b and not isinstance(b["remind_on"], bool):
+                return err("Pole remind_on musi być true lub false")
+            if "remind_hour" in b and not integer(b["remind_hour"], 5, 23):
+                return err("Godzina przypomnienia od 5 do 23")
+            for k in ("remind_on", "remind_hour"):
+                if k in b:
+                    q(f"UPDATE farms SET {k}=? WHERE id=?", int(b[k]), fid)
+            commit()
+        f = q("SELECT remind_on, remind_hour FROM farms WHERE id=?", fid).fetchone()
+        return jsonify(remind_on=bool(f["remind_on"]), remind_hour=f["remind_hour"], email=g.user["email"],
+                       mail_configured=bool(app.config.get("SMTP_HOST")))
+
     def days_arg(default="30", hi=366):
         d = request.args.get("days", default)
         return int(d) if d.isdigit() and 1 <= int(d) <= hi else None

@@ -106,6 +106,9 @@ def create_app(test_config=None):
                       REAL_IP_HEADER=os.environ.get("REAL_IP_HEADER", ""),
                       WG_CONF=os.environ.get("WG_CONF", ""),
                       ADMIN_EMAIL=os.environ.get("ADMIN_EMAIL", ""), ADMIN_PASSWORD=os.environ.get("ADMIN_PASSWORD", ""),
+                      SMTP_HOST=os.environ.get("SMTP_HOST", ""), SMTP_PORT=os.environ.get("SMTP_PORT", "587"),
+                      SMTP_USER=os.environ.get("SMTP_USER", ""), SMTP_PASSWORD=os.environ.get("SMTP_PASSWORD", ""),
+                      MAIL_FROM=os.environ.get("MAIL_FROM", ""), MAIL=farmbook.send_mail,
                       SEND=sv.send_http, RUN_SCHEDULER=os.environ.get("RUN_SCHEDULER") == "1")
     app.config.update(test_config or {})
     if app.config["PROXY_COUNT"]:  # za odwrotnym proxy lub Cloudflare Tunnel: adres klienta z X-Forwarded-For
@@ -901,10 +904,14 @@ def create_app(test_config=None):
     # polecenia konsolowe (np. create-admin w działającym kontenerze) nie uruchamiają drugiego silnika obok serwera
     if app.config["RUN_SCHEDULER"] and not set(sys.argv) & {"create-admin", "seed-demo", "shell", "routes"}:
         def loop():
-            ev = threading.Event()
+            ev, minute = threading.Event(), None
             while not ev.wait(app.config["TICK_S"]):  # krótki obieg: impulsy drzwi trwają sekundy
                 try:
                     sv.tick(app)
+                    if datetime.now().minute != minute:  # przypomnienia o zbiorze: raz na minutę
+                        minute = datetime.now().minute
+                        with app.app_context():
+                            farmbook.reminders(app, dbm.get())
                 except Exception:  # noqa: BLE001
                     app.logger.exception("tick failed")
         threading.Thread(target=loop, daemon=True, name="scheduler").start()
