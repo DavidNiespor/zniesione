@@ -12,6 +12,7 @@ Wszystko, czego portal potrzebuje do działania, jest w jednym pliku [`docker-co
 | `poczta-start` | jednorazowo: skrzynka `admin@zniesione.pl`, aliasy `postmaster@` i `abuse@`, klucz DKIM |
 | `certyfikat` | certyfikat TLS dla `mail.zniesione.pl` z Let's Encrypt (przez DNS Cloudflare), odnawiany sam |
 | `poczta` | serwer poczty docker-mailserver: SMTP, IMAP, filtr spamu, DKIM, blokada zgadywania haseł |
+| `esphome` | buduje firmware sterowników z panelu admina i wgrywa je przez sieć (tylko wewnątrz stacka) |
 | `webmail` | Roundcube: poczta w przeglądarce pod `poczta.zniesione.pl` |
 | `kopie` | codzienna kopia bazy portalu do wolumenu `kopie`, przechowywana 14 dni |
 
@@ -24,8 +25,9 @@ inne serwery poczty ──SMTP 25──▶ serwer ──▶ poczta ◀── tel
 
 ## Zanim zaczniesz: wymagania
 
-- Serwer z Linuksem (np. Ubuntu 22.04 lub 24.04), jądro 5.6 lub nowsze, Docker z Compose v2, **co najmniej 2 GB RAM**
-  (portal z pocztą i filtrem spamu zajmuje ok. 1–1,5 GB).
+- Serwer z Linuksem (np. Ubuntu 22.04 lub 24.04), jądro 5.6 lub nowsze, Docker z Compose v2, **zalecane 4 GB RAM**
+  (portal z pocztą i filtrem spamu zajmuje ok. 1–1,5 GB, kompilacja firmware ESP32 chwilowo ok. 1,5 GB) i ok. 5 GB miejsca
+  na dysku (kompilatory ESP32 pobierane raz przy pierwszej kompilacji).
 - **Stały publiczny adres IPv4** serwera.
 - Domena `zniesione.pl` dodana do Cloudflare (plan Free wystarczy), status „Active”.
 - **Port 25 otwarty w obie strony.** Wielu dostawców VPS i łączy domowych go blokuje; czasem odblokowują go na prośbę
@@ -122,7 +124,28 @@ Program pocztowy lub telefon (Gmail, Outlook, Thunderbird, Poczta w iPhonie): ko
 
 Poczta do `postmaster@zniesione.pl` i `abuse@zniesione.pl` trafia do skrzynki administratora.
 
-## 6. Kolejne skrzynki i hasła
+## 6. Dane z e-kurnika
+
+**Administrator → Import z e-kurnika**: wgraj plik kopii bazy e-kurnika (.db), wybierz gospodarstwo (portal podpowiada to
+z największą liczbą klientów), wpisz e-mail konta rolnika (np. Twój Gmail). Jeśli konta nie ma, podaj hasło, a portal je założy.
+Import przenosi klientów z saldami, sprzedaż, zbiory, straty, stan magazynu jaj, stada, wydatki, wyposażenie, paszę z recepturami
+i zamówienia cykliczne. Tę samą farmę można zaimportować raz; plik kopii jest usuwany po imporcie.
+
+## 7. Firmware sterownika (ESPHome)
+
+1. **Administrator → Sterowniki → karta sterownika → Firmware ESPHome**: wpisz sieć Wi-Fi kurnika, wybierz czujnik
+   (SHT3x, DHT22 albo DS18B20) i piny GPIO, do których jest podłączony. **Zapisz ustawienia.**
+2. **Kompiluj firmware.** Pierwsza kompilacja trwa do ok. 10 minut (pobieranie kompilatorów), kolejne 1–3 minuty. Postęp i log widać w karcie.
+3. Pierwsze wgranie: podłącz sterownik kablem USB do komputera i kliknij **Wgraj przez USB** (Chrome lub Edge na komputerze).
+   LilyGO T-Relay nie ma USB: potrzebny jest adapter USB-UART (np. T-U2T). Możesz też pobrać plik `.bin` i wgrać go innym narzędziem.
+4. Gdy sterownik połączy się z portalem przez WireGuard (status „online”), kolejne wersje wgrasz przyciskiem **Wgraj przez sieć (OTA)**.
+
+## 8. Aplikacja na telefonie
+
+Na telefonie z Androidem (Chrome): **Ustawienia → Dodaj jako aplikację** albo menu przeglądarki → „Zainstaluj aplikację”.
+iPhone: w Safari **Udostępnij → Do ekranu początkowego**. Portal otwiera się wtedy jak zwykła aplikacja, z ikoną jajka.
+
+## 9. Kolejne skrzynki i hasła
 
 Polecenia wpisujesz w konsoli kontenera `poczta` (Portainer: **Containers → zniesione-poczta-1 → Console → Connect**,
 powłoka `/bin/bash`) albo na serwerze z przedrostkiem `sudo docker compose exec poczta`:

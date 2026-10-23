@@ -45,7 +45,8 @@ Panel rolnika (telefon jako pierwszy, dolne menu Start, Jaja, Sterowanie, Zamów
 - **Zabezpieczenia w sterowniku** (generowany YAML ESPHome): każdy przekaźnik `restore_mode: ALWAYS_OFF`, przekaźniki drzwi
   z `interlock` i wyłączeniem po `door_run_s` w samym sterowniku, więc drzwi zatrzymają się także bez internetu.
   Po zmianie czasu pracy silnika trzeba ponownie wgrać konfigurację.
-- **Jaja na sztuki** (jak w e-kurniku): zbiór z liczbą brudnych/uszkodzonych (nie trafiają do sprzedaży), straty, inwentaryzacja.
+- **Jaja na sztuki**: zbiór trafia do **sortowania** (dobre, brudne, uszkodzone); do magazynu idą tylko dobre. Do tego **rozdane**
+  (np. mamie, z odbiorcą i podsumowaniem), straty, inwentaryzacja i **przypomnienie o 19:00** (e-mail i baner), gdy zbiór nie jest wpisany.
   Z magazynu dobrych jaj rolnik przydziela: ile **opakowań ogłasza w sklepie** i ile **sztuk rezerwuje dla stałych klientów**;
   portal pilnuje, by ogłoszone + zarezerwowane + potwierdzone zamówienia nie przekroczyły magazynu (reszta to „wolne”).
 - **Kartoteka klienta** (jak w e-kurniku): zakupy, wpłaty, sposób płatności (gotówka, przelew, BLIK, następnym razem, z nadpłaty),
@@ -58,7 +59,14 @@ Panel rolnika (telefon jako pierwszy, dolne menu Start, Jaja, Sterowanie, Zamów
   Raporty: wpływy według sposobu płatności, długi, nadpłaty, wydatki i zysk.
 - **Stado** (liczba kur, rasa, notatki, jaja dziennie i nieśność ze zbiorów), **Zamówienia**, **Oferta** (cena, opis, położenie),
   **Sterowniki** (zamawianie, etapy dostawy), **Baza wiedzy**, **Ustawienia** (motyw auto/jasny/czarny, wylogowanie).
-- **Import z e-kurnika**: `flask --app zniesione import-ekurnik KOPIA.db --email rolnik@... [--gid N]` przenosi klientów
+- **Pasza i mieszalnia**: magazyn zboża i dodatków (stan, minimum, cena, białko, energia, wapń), przyjęcie zakupu z wydatkiem,
+  receptury (udziały 100%, wartości odżywcze i cena za kg), mieszanie odejmujące składniki z magazynu.
+- **Aplikacja na telefon**: portal instaluje się jak aplikacja (ikona, pełny ekran, skróty: Zbiór jaj, Sprzedaż, Sterowanie).
+- **Firmware sterowników z panelu admina**: kontener ESPHome w stacku kompiluje konfigurację z portalu (Wi-Fi, czujnik SHT3x / DHT22 /
+  DS18B20, przekaźniki z zabezpieczeniami), wgranie przez USB w przeglądarce (ESP Web Tools) albo przez sieć (OTA przez WireGuard).
+  Sterownik co minutę wysyła odczyt do portalu, więc portal wie, że jest połączony.
+- **Import z e-kurnika** w panelu admina (wgranie pliku kopii, wybór gospodarstwa, konto rolnika zakładane od razu) albo poleceniem
+  `flask --app zniesione import-ekurnik KOPIA.db --email rolnik@... [--gid N]`; przenosi też paszę, receptury i historię mieszania, oraz klientów
   z saldami (zgodnymi z e-kurnikiem co do grosza), historię zakupów i wpłat, sprzedaż, zbiory, straty, stan magazynu, stada,
   wydatki, wyposażenie, zamówienia cykliczne i cenę jajka. W Dockerze: `docker compose cp KOPIA.db zniesione:/data/` i polecenie
   w konsoli kontenera `zniesione` (ścieżka `/data/KOPIA.db`).
@@ -103,18 +111,20 @@ ciasteczko sesji `HttpOnly`, `SameSite=Lax`, `Secure` poza trybem testowym (bez 
 | `POST /api/admin/kb`, `PUT/DELETE /api/admin/kb/<id>` | artykuły: `title`, `category`, `body`, `published` (tylko admin) |
 
 ## Ograniczenia i do zrobienia
-- **Do weryfikacji na sprzęcie:** ścieżka REST `/switch/<id>/turn_on` w `services.send_http` (web_server ESPHome)
-  oraz zabezpieczenia w YAML (`interlock`, `on_turn_on` z `delay`). Sterowanie, impulsy drzwi i ponawianie sprawdzono
-  tylko na atrapie `tools/fake_device.py`, a YAML tylko parserem (nie kompilatorem ESPHome).
+- **Do sprawdzenia na sprzęcie:** sterowanie przez web_server ESPHome (`/switch/ch1/turn_on`: przełączniki mają nazwy równe
+  kluczom, bo ESPHome 2026.10 dopasowuje adres po nazwie encji, co sprawdzono w jego źródłach), zabezpieczenia drzwi w YAML
+  i wysyłanie odczytów. Konfiguracje przechodzą `esphome config`, a wariant z SHT3x pełną kompilację ESPHome 2026.10.0;
+  na prawdziwym sterowniku nie były wgrane. Sterowanie sprawdzono na atrapie `tools/fake_device.py`.
+- Waveshare (Ethernet) nie jest budowany z portalu: piny W5500 trzeba uzupełnić według dokumentacji płytki.
 - Portal nie odczytuje stanu przekaźników ze sterownika (wymagałoby to API ESPHome, którego nie zgadujemy): po zaniku
   zasilania w kurniku przekaźniki są wyłączone (`ALWAYS_OFF`), a portal może jeszcze pokazywać stan sprzed awarii.
 - Limit logowania jest w pamięci jednego procesu (gunicorn z 1 workerem, jak w Dockerfile). Za Cloudflare ustaw
   `REAL_IP_HEADER` albo `PROXY_COUNT` (w `docker-compose.yml` są ustawione).
 - Nieśność w Stadzie jest szacunkowa: liczona z zapisanych zbiorów (w sztukach, razem z brudnymi i uszkodzonymi).
 - Sklep dla klientów sprzedaje całe opakowania po 10 szt.; sprzedaż na miejscu i stali klienci mogą brać dowolną liczbę sztuk.
-- Hasło API i OTA w secrets.yaml są losowane przy każdym pobraniu (portal ich nie używa); klucze WireGuard są stałe.
+- Klucze sterownika (API, OTA, WireGuard) są tworzone raz i stałe, więc kolejne wgrania przez sieć pasują do sterownika.
 - Poza zakresem: Shelly przez MQTT (sterowanie zwraca błąd „niezaimplementowane”), OTA z portalu, płatności online,
-  reset hasła, e-mail/SMS do klientów, receptury paszy i SUPLA z e-kurnika (nie były w zakresie).
+  reset hasła, e-mail/SMS do klientów, SUPLA z e-kurnika, powiadomienia push w aplikacji (przypomnienie idzie e-mailem).
 
 ## Windows (PowerShell)
 Potrzebne są dwa okna PowerShella w katalogu projektu. `flask` często nie jest w PATH, więc używaj `python -m flask`.
@@ -157,8 +167,8 @@ Scenariusze do przejścia ręcznie (najlepiej na telefonie lub w trybie telefonu
 9. Rolnik, Więcej, Sterowniki: T-Relay jest domyślny i oznaczony jako najtańszy; T-Relay z Tailscale zostaje odrzucony.
 
 ## Testy automatyczne
-    python -m pytest -q                                  # 88 testów API i logiki
-    cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 94 kroki przez interfejs (jsdom), każdy system
+    python -m pytest -q                                  # 99 testów API i logiki
+    cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 110 kroków przez interfejs (jsdom), każdy system
 `run.js` zakłada bazę w katalogu tymczasowym, uruchamia atrapę urządzenia (port 9123) i serwer Flaska (port 8765);
 porty i interpreter zmienisz zmiennymi `DEV_PORT`, `WEB_PORT`, `PYTHON`. `tests/e2e/run.sh` tylko wywołuje `run.js`.
 Test e2e nie zastępuje sprawdzenia w prawdziwej przeglądarce na telefonie.
