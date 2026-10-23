@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS recipes(id INTEGER PRIMARY KEY, farm_id INTEGER NOT N
 CREATE TABLE IF NOT EXISTS recipe_items(id INTEGER PRIMARY KEY, recipe_id INTEGER NOT NULL, item_id INTEGER NOT NULL, percent REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS mixes(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, at TEXT NOT NULL, recipe_id INTEGER, kg REAL NOT NULL,
   notes TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS buildings(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, name TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS kb(id INTEGER PRIMARY KEY, title TEXT NOT NULL, category TEXT NOT NULL DEFAULT '', body TEXT NOT NULL,
   published INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL, updated TEXT NOT NULL);
 """
@@ -77,6 +78,10 @@ COLUMNS = [
     ("devices", "wifi_ssid", "TEXT NOT NULL DEFAULT ''"), ("devices", "wifi_password", "TEXT NOT NULL DEFAULT ''"),
     ("devices", "fw_job", "TEXT NOT NULL DEFAULT ''"),
     ("users", "name", "TEXT NOT NULL DEFAULT ''"), ("users", "owner", "INTEGER NOT NULL DEFAULT 1"),
+    ("farms", "dirty", "INTEGER NOT NULL DEFAULT 0"),      # brudne jaja: nie do sklepu, ale do sprzedaży na miejscu lub rozdania
+    ("eggs", "pool", "TEXT NOT NULL DEFAULT ''"), ("eggs", "building_id", "INTEGER"),
+    ("flocks", "building_id", "INTEGER"), ("devices", "building_id", "INTEGER"),
+    ("orders", "due_date", "TEXT NOT NULL DEFAULT ''"),
     ("eggs", "user_id", "INTEGER"), ("sales", "user_id", "INTEGER"), ("ledger", "user_id", "INTEGER"),
     ("feed_moves", "user_id", "INTEGER"), ("mixes", "user_id", "INTEGER"), ("expenses", "user_id", "INTEGER"),
     ("channels", "off_at", "TEXT"), ("channels", "want", "INTEGER"),

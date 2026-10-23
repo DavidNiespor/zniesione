@@ -28,10 +28,19 @@ def committed_sql():
 
 
 def pools(q, fid):
-    f = q(f"SELECT eggs, stock, reserved, unsorted, {committed_sql()} AS committed FROM farms WHERE id=?", fid).fetchone()
+    f = q(f"SELECT eggs, stock, reserved, unsorted, dirty, {committed_sql()} AS committed FROM farms WHERE id=?", fid).fetchone()
     free = f["eggs"] - f["stock"] * PACK - f["reserved"] - f["committed"]
     return dict(unsorted=f["unsorted"], eggs=f["eggs"], offer_packs=f["stock"], reserved=f["reserved"], committed=f["committed"],
-                free=max(0, free))
+                free=max(0, free), dirty=f["dirty"])
+
+
+def entry_at(d):
+    """Data wpisu: brak = teraz; dzisiejsza = teraz; wcześniejsza (do roku wstecz) = ten dzień w południe."""
+    if d is None or d == date.today().isoformat():
+        return now(), None
+    if not valid_date(d) or not (date.today() - timedelta(days=366)).isoformat() <= d < date.today().isoformat():
+        return None, "Data wpisu: dziś albo do roku wstecz (RRRR-MM-DD)"
+    return d + "T12:00:00", None
 
 
 def free_sql():
@@ -142,20 +151,23 @@ def register(app, need, q, commit, body, err, integer):
             days = days_arg("30", 365)
             if not days:
                 return err("Parametr days od 1 do 365")
-            rows = q(f"SELECT id,kind,eggs,damaged,dirty,who,note,at,sale_id,user_id,{dbm.by_sql('eggs')} FROM eggs WHERE farm_id=? AND at>=? "
+            rows = q(f"SELECT id,kind,eggs,damaged,dirty,who,note,at,sale_id,user_id,pool,building_id,{dbm.by_sql('eggs')} FROM eggs WHERE farm_id=? AND at>=? "
                      "ORDER BY at DESC, id DESC", fid,
                      (datetime.now() - timedelta(days=days)).isoformat()).fetchall()
             by = lambda k, col="eggs": sum(r[col] for r in rows if r["kind"] == k)
             soon = (date.today() + timedelta(days=7)).isoformat()
             need7 = q("SELECT COALESCE(SUM(eggs),0) FROM subscriptions WHERE farm_id=? AND active=1 AND next_date<=?", fid, soon).fetchone()[0]
-            gifts = {}
+            gifts, builds = {}, {}
+            names = {r["id"]: r["name"] for r in q("SELECT id, name FROM buildings WHERE farm_id=?", fid)}
             for r in rows:
                 if r["kind"] == "gift":
                     gifts[r["who"]] = gifts.get(r["who"], 0) + r["eggs"]
+                if r["kind"] == "collect" and r["building_id"] in names:
+                    builds[names[r["building_id"]]] = builds.get(names[r["building_id"]], 0) + r["eggs"]
             today_n = q("SELECT COALESCE(SUM(eggs),0) FROM eggs WHERE farm_id=? AND kind='collect' AND at>=?", fid, date.today().isoformat()).fetchone()[0]
             hour = q("SELECT remind_on, remind_hour FROM farms WHERE id=?", fid).fetchone()
             return jsonify(days=days, collected=by("collect"), good=by("sort"), dirty=by("sort", "dirty"), damaged=by("sort", "damaged"),
-                           sold=by("sale"), lost=by("loss"), given=by("gift"), given_to=gifts, entries=[dict(r) for r in rows[:200]],
+                           sold=by("sale"), lost=by("loss"), given=by("gift"), given_to=gifts, by_building=builds, entries=[dict(r) for r in rows[:200]],
                            stock=pools(q, fid), reserve_needed_7d=need7, collected_today=today_n,
                            reminder_due=bool(hour["remind_on"]) and datetime.now().hour >= hour["remind_hour"] and not today_n,
                            recipients=[r[0] for r in q("SELECT who FROM eggs WHERE farm_id=? AND kind='gift' AND who!='' GROUP BY who "
@@ -165,38 +177,49 @@ def register(app, need, q, commit, body, err, integer):
         note = text(b, "note", 200)
         if note is None:
             return err("Opis do 200 znaków")
-        if kind == "collect":  # zebrane trafiają do sortowania; sorted=true: od razu posortowane (dobre do magazynu)
+        at, msg = entry_at(b.get("date"))
+        if msg:
+            return err(msg)
+        bid = b.get("building_id")
+        if bid is not None and (not integer(bid, 1, 10 ** 9) or not q("SELECT 1 FROM buildings WHERE id=? AND farm_id=?", bid, fid).fetchone()):
+            return err("Nieznany budynek")
+        if kind == "collect":  # zebrane trafiają do sortowania; sorted=true: od razu posortowane
             if not integer(n, 1, 100000):
                 return err("Liczba zebranych jaj od 1 do 100 000")
-            at = now()
-            q("INSERT INTO eggs(farm_id,kind,eggs,note,at) VALUES(?,?,?,?,?)", fid, "collect", n, note, at)
+            q("INSERT INTO eggs(farm_id,kind,eggs,note,at,building_id) VALUES(?,?,?,?,?,?)", fid, "collect", n, note, at, bid)
             if b.get("sorted") is True:
                 dmg, dirty = b.get("damaged", 0), b.get("dirty", 0)
                 if not integer(dmg, 0, n) or not integer(dirty, 0, n - dmg):
                     return err("Brudnych i uszkodzonych nie może być więcej niż zebranych")
-                q("UPDATE farms SET eggs=eggs+? WHERE id=?", n - dmg - dirty, fid)
+                q("UPDATE farms SET eggs=eggs+?, dirty=dirty+? WHERE id=?", n - dmg - dirty, dirty, fid)
                 q("INSERT INTO eggs(farm_id,kind,eggs,damaged,dirty,packs,at) VALUES(?,?,?,?,?,?,?)", fid, "sort", n - dmg - dirty, dmg, dirty,
                   (n - dmg - dirty) // PACK, at)
             else:
                 q("UPDATE farms SET unsorted=unsorted+? WHERE id=?", n, fid)
-        elif kind == "sort":  # sortowanie: dobre do magazynu, brudne i uszkodzone nie idą do sprzedaży
+        elif kind == "sort":  # dobre do magazynu i sklepu, brudne osobno (sprzedaż na miejscu, rozdanie), uszkodzone odpadają
             good, dirty, dmg = b.get("good", 0), b.get("dirty", 0), b.get("damaged", 0)
             if not all(integer(x, 0, 100000) for x in (good, dirty, dmg)) or good + dirty + dmg < 1:
                 return err("Podaj liczbę dobrych, brudnych i uszkodzonych jaj (razem co najmniej 1)")
             total = good + dirty + dmg
-            if not q("UPDATE farms SET unsorted=unsorted-?, eggs=eggs+? WHERE id=? AND unsorted>=?", total, good, fid, total).rowcount:
+            if not q("UPDATE farms SET unsorted=unsorted-?, eggs=eggs+?, dirty=dirty+? WHERE id=? AND unsorted>=?", total, good, dirty, fid, total).rowcount:
                 return err(f"Do sortowania jest tylko {pools(q, fid)['unsorted']} szt.", 409)
-            q("INSERT INTO eggs(farm_id,kind,eggs,damaged,dirty,packs,note,at) VALUES(?,?,?,?,?,?,?,?)", fid, "sort", good, dmg, dirty, good // PACK, note, now())
-        elif kind in ("loss", "gift"):  # strata (np. stłuczone) albo rozdane (np. mamie): z wolnych jaj
-            who = text(b, "who", 60, required=kind == "gift")
+            q("INSERT INTO eggs(farm_id,kind,eggs,damaged,dirty,packs,note,at) VALUES(?,?,?,?,?,?,?,?)", fid, "sort", good, dmg, dirty, good // PACK, note, at)
+        elif kind in ("loss", "gift"):  # strata albo rozdane (np. mamie): z wolnych dobrych albo z brudnych
+            who, pool = text(b, "who", 60, required=kind == "gift"), b.get("pool", "good")
             if who is None:
                 return err("Wpisz, komu rozdano jaja (np. mama)")
             if not integer(n, 1, 100000):
                 return err("Liczba jaj od 1 do 100 000")
-            if not q(f"UPDATE farms SET eggs=eggs-? WHERE id=? AND {free_sql()}>=?", n, fid, n).rowcount:
+            if pool not in ("good", "dirty"):
+                return err("Pula: good (dobre) albo dirty (brudne)")
+            if pool == "dirty":
+                if not q("UPDATE farms SET dirty=dirty-? WHERE id=? AND dirty>=?", n, fid, n).rowcount:
+                    return err(f"Brudnych jaj jest tylko {pools(q, fid)['dirty']} szt.", 409)
+            elif not q(f"UPDATE farms SET eggs=eggs-? WHERE id=? AND {free_sql()}>=?", n, fid, n).rowcount:
                 return err(f"Wolnych jaj jest tylko {pools(q, fid)['free']} szt. (reszta ogłoszona lub zarezerwowana)", 409)
-            q("INSERT INTO eggs(farm_id,kind,eggs,who,note,at) VALUES(?,?,?,?,?,?)", fid, kind, n, who, note or ("Strata" if kind == "loss" else ""), now())
-        elif kind == "inventory":  # „policzyłem jaja”: magazyn = policzona liczba
+            q("INSERT INTO eggs(farm_id,kind,eggs,who,note,at,pool) VALUES(?,?,?,?,?,?,?)", fid, kind, n, who,
+              note or ("Strata" if kind == "loss" else ""), at, "dirty" if pool == "dirty" else "")
+        elif kind == "inventory":  # „policzyłem jaja”: magazyn dobrych = policzona liczba
             if not integer(n, 0, 100000):
                 return err("Policzona liczba jaj od 0 do 100 000")
             p = pools(q, fid)
@@ -204,11 +227,115 @@ def register(app, need, q, commit, body, err, integer):
             if n < held:
                 return err(f"Policzono mniej, niż jest ogłoszone, zarezerwowane i do wydania ({held} szt.). Najpierw zmniejsz ogłoszenie lub rezerwację.", 409)
             q("UPDATE farms SET eggs=? WHERE id=?", n, fid)
-            q("INSERT INTO eggs(farm_id,kind,eggs,note,at) VALUES(?,?,?,?,?)", fid, "inventory", n - p["eggs"], note or "Inwentaryzacja", now())
+            q("INSERT INTO eggs(farm_id,kind,eggs,note,at) VALUES(?,?,?,?,?)", fid, "inventory", n - p["eggs"], note or "Inwentaryzacja", at)
         else:
             return err("Rodzaj wpisu: collect (zbiór), sort (sortowanie), gift (rozdane), loss (strata) albo inventory (inwentaryzacja)")
         commit()
         return jsonify(stock=pools(q, fid)), 201
+
+    @app.route("/api/my/eggs/<int:eid>", methods=["PATCH", "DELETE"])
+    @need("farmer")
+    def egg_entry(eid):
+        """Poprawka albo usunięcie wpisu: stany jaj cofają się tak, jakby wpisu nie było (albo był z nową liczbą)."""
+        fid = g.user["farm_id"]
+        e = q("SELECT * FROM eggs WHERE id=? AND farm_id=?", eid, fid).fetchone()
+        if not e:
+            return err("Nie znaleziono", 404)
+        if e["kind"] == "sale":
+            return err("Sprzedaż poprawisz lub usuniesz w Sprzedaży", 409)
+        dirty_pool = e["pool"] == "dirty"
+        if request.method == "DELETE":
+            k, n = e["kind"], e["eggs"]
+            ok = True
+            if k == "collect":
+                ok = q("UPDATE farms SET unsorted=unsorted-? WHERE id=? AND unsorted>=?", n, fid, n).rowcount
+                msg = "Te jaja są już posortowane: najpierw usuń sortowanie"
+            elif k == "sort":
+                ok = q(f"UPDATE farms SET unsorted=unsorted+?, eggs=eggs-?, dirty=dirty-? WHERE id=? AND {free_sql()}>=? AND dirty>=?",
+                       n + e["dirty"] + e["damaged"], n, e["dirty"], fid, n, e["dirty"]).rowcount
+                msg = "Jaja z tego sortowania są już sprzedane, ogłoszone, zarezerwowane albo rozdane"
+            elif k in ("gift", "loss"):
+                q("UPDATE farms SET dirty=dirty+? WHERE id=?" if dirty_pool else "UPDATE farms SET eggs=eggs+? WHERE id=?", n, fid)
+            elif k == "inventory":
+                ok = q(f"UPDATE farms SET eggs=eggs-? WHERE id=? AND {free_sql()}>=?", n, fid, n).rowcount if n > 0 else \
+                    q("UPDATE farms SET eggs=eggs-? WHERE id=?", n, fid).rowcount
+                msg = "Nie da się cofnąć inwentaryzacji: jaja są już ogłoszone, zarezerwowane albo sprzedane"
+            if not ok:
+                return err(msg, 409)
+            q("DELETE FROM eggs WHERE id=?", eid)
+            commit()
+            return jsonify(stock=pools(q, fid))
+        b = body()
+        sets, vals = [], []
+        if "date" in b:
+            at, msg = entry_at(b["date"])
+            if msg:
+                return err(msg)
+            sets.append("at=?"), vals.append(at if b["date"] != e["at"][:10] else e["at"])
+        for k, n in (("note", 200), ("who", 60)):
+            if k in b:
+                v = text(b, k, n, required=k == "who" and e["kind"] == "gift")
+                if v is None:
+                    return err(f"Pole {k} do {n} znaków")
+                sets.append(f"{k}=?"), vals.append(v)
+        if "eggs" in b:  # nowa liczba: różnica trafia do puli (zbiór: do sortowania; rozdane/strata: z wolnych lub brudnych)
+            if e["kind"] not in ("collect", "gift", "loss") or not integer(b["eggs"], 1, 100000):
+                return err("Liczbę jaj zmienisz w zbiorze, rozdanych i stracie (od 1); sortowanie usuń i wpisz ponownie")
+            d = b["eggs"] - e["eggs"]
+            if e["kind"] == "collect":
+                ok = q("UPDATE farms SET unsorted=unsorted+? WHERE id=? AND unsorted+?>=0", d, fid, d).rowcount
+            elif dirty_pool:
+                ok = q("UPDATE farms SET dirty=dirty-? WHERE id=? AND dirty-?>=0", d, fid, d).rowcount
+            else:
+                ok = q(f"UPDATE farms SET eggs=eggs-? WHERE id=? AND {free_sql()}-?>=0", d, fid, d).rowcount
+            if not ok:
+                return err("Za mało jaj w puli, żeby tak zmienić wpis", 409)
+            sets.append("eggs=?"), vals.append(b["eggs"])
+        if sets:
+            q(f"UPDATE eggs SET {','.join(sets)} WHERE id=?", *vals, eid)
+            commit()
+        return jsonify(dict(q("SELECT * FROM eggs WHERE id=?", eid).fetchone(), stock=pools(q, fid)))
+
+    # ---------- budynki: w jednym budynku może być kilka stad (i sterownik) ----------
+    @app.route("/api/my/buildings", methods=["GET", "POST"])
+    @need("farmer")
+    def buildings():
+        fid = g.user["farm_id"]
+        if request.method == "POST":
+            name, notes = text(body(), "name", 60, required=True), text(body(), "notes", 300)
+            if not name or notes is None:
+                return err("Podaj nazwę budynku (do 60 znaków)")
+            bid = q("INSERT INTO buildings(farm_id,name,notes) VALUES(?,?,?)", fid, name, notes).lastrowid
+            commit()
+            return jsonify(id=bid, name=name, notes=notes), 201
+        out = []
+        for r in q("SELECT * FROM buildings WHERE farm_id=? ORDER BY name", fid):
+            fl = [dict(x) for x in q("SELECT id, name, birds FROM flocks WHERE building_id=? ORDER BY name", r["id"])]
+            dv = [dict(x) for x in q("SELECT id, code, addr FROM devices WHERE building_id=? AND farm_id=?", r["id"], fid)]
+            out.append(dict(r, flocks=fl, birds=sum(x["birds"] for x in fl), devices=dv))
+        return jsonify(out)
+
+    @app.route("/api/my/buildings/<int:bid>", methods=["PATCH", "DELETE"])
+    @need("farmer")
+    def building(bid):
+        fid = g.user["farm_id"]
+        old = q("SELECT * FROM buildings WHERE id=? AND farm_id=?", bid, fid).fetchone()
+        if not old:
+            return err("Nie znaleziono", 404)
+        if request.method == "DELETE":  # stada i sterowniki zostają, bez przypisania
+            for t in ("flocks", "devices", "eggs"):
+                q(f"UPDATE {t} SET building_id=NULL WHERE building_id=?", bid)
+            q("DELETE FROM buildings WHERE id=?", bid)
+            commit()
+            return jsonify(ok=True)
+        b = body()
+        name = text(b, "name", 60, required=True) if "name" in b else old["name"]
+        notes = text(b, "notes", 300) if "notes" in b else old["notes"]
+        if not name or notes is None:
+            return err("Podaj nazwę budynku (do 60 znaków)")
+        q("UPDATE buildings SET name=?, notes=? WHERE id=?", name, notes, bid)
+        commit()
+        return jsonify(dict(q("SELECT * FROM buildings WHERE id=?", bid).fetchone()))
 
     @app.post("/api/my/eggs/allocation")
     @need("farmer")

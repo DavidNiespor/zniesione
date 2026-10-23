@@ -234,8 +234,8 @@ def register(app, need, q, commit, body, err, integer):
             # skąd jaja: wolne z magazynu, z rezerwy stałych klientów albo z ogłoszonych w sklepie (opakowania)
             default = "reserve" if sub and farm["reserved"] >= eggs else "offer" if "packs" in b and "eggs" not in b else "free"
             source = b.get("source", default)
-            if source not in ("free", "reserve", "offer"):
-                return err("Źródło jaj: free (wolne), reserve (rezerwa) albo offer (ogłoszone w sklepie)")
+            if source not in ("free", "reserve", "offer", "dirty"):
+                return err("Źródło jaj: free (wolne), reserve (rezerwa), offer (ogłoszone w sklepie) albo dirty (brudne)")
             if source == "offer" and eggs % 10:
                 return err("Z ogłoszonych w sklepie sprzedaje się całe opakowania po 10 szt.")
         if method in ("later", "balance") and not c:
@@ -258,12 +258,17 @@ def register(app, need, q, commit, body, err, integer):
         elif source == "offer":
             if not q("UPDATE farms SET stock=stock-?, eggs=MAX(0, eggs-?) WHERE id=? AND stock>=?", eggs // 10, eggs, fid, eggs // 10).rowcount:
                 return err(f"Na stanie jest tylko {q('SELECT stock FROM farms WHERE id=?', fid).fetchone()['stock']} opak.", 409)
+        elif source == "dirty":
+            if not q("UPDATE farms SET dirty=dirty-? WHERE id=? AND dirty>=?", eggs, fid, eggs).rowcount:
+                return err(f"Brudnych jaj jest tylko {q('SELECT dirty FROM farms WHERE id=?', fid).fetchone()['dirty']} szt.", 409)
         elif source == "reserve":
             if not q("UPDATE farms SET reserved=reserved-?, eggs=eggs-? WHERE id=? AND reserved>=?", eggs, eggs, fid, eggs).rowcount:
                 return err(f"Zarezerwowanych jest tylko {q('SELECT reserved FROM farms WHERE id=?', fid).fetchone()['reserved']} szt.", 409)
         elif not q(f"UPDATE farms SET eggs=eggs-? WHERE id=? AND {farmbook.free_sql()}>=?", eggs, fid, eggs).rowcount:
             return err(f"Wolnych jaj jest tylko {farmbook.pools(q, fid)['free']} szt. (reszta ogłoszona w sklepie lub zarezerwowana)", 409)
-        at = now()
+        at, msg = farmbook.entry_at(b.get("date"))
+        if msg:
+            return err(msg)
         sid = q("INSERT INTO sales(farm_id,client_id,order_id,subscription_id,at,eggs,packs,price10,discount,total,method,paid,notes,source) "
                 "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", fid, c["id"] if c else None, o["id"] if o else None, sub["id"] if sub else None,
                 at, eggs, eggs // 10, price10, discount, total, method, round(paid, 2), notes.strip(), source).lastrowid
@@ -282,6 +287,27 @@ def register(app, need, q, commit, body, err, integer):
         return jsonify(id=sid, eggs=eggs, total=total, paid=round(paid, 2), stock=p["offer_packs"], pools=p,
                        balance=balance(c["id"]) if c else None), 201
 
+    @app.patch("/api/my/sales/<int:sid>")
+    @need("farmer")
+    def sale_patch(sid):
+        """Poprawka daty i uwag sprzedaży (ilość i kwotę zmienia się usuwając i wpisując sprzedaż ponownie)."""
+        s = q("SELECT * FROM sales WHERE id=? AND farm_id=?", sid, g.user["farm_id"]).fetchone()
+        if not s:
+            return err("Nie znaleziono", 404)
+        b = body()
+        if "notes" in b:
+            if not isinstance(b["notes"], str) or len(b["notes"]) > 200:
+                return err("Uwagi do 200 znaków")
+            q("UPDATE sales SET notes=? WHERE id=?", b["notes"].strip(), sid)
+        if "date" in b:
+            at, msg = farmbook.entry_at(b["date"])
+            if msg:
+                return err(msg)
+            for t, col in (("sales", "id"), ("eggs", "sale_id"), ("ledger", "sale_id")):
+                q(f"UPDATE {t} SET at=? WHERE {col}=?", at, sid)
+        commit()
+        return jsonify(dict(q("SELECT * FROM sales WHERE id=?", sid).fetchone()))
+
     @app.delete("/api/my/sales/<int:sid>")
     @need("farmer")
     def sale_delete(sid):
@@ -291,8 +317,11 @@ def register(app, need, q, commit, body, err, integer):
             return err("Nie znaleziono", 404)
         if s["order_id"]:
             q("UPDATE orders SET status='confirmed' WHERE id=?", s["order_id"])
-        q("UPDATE farms SET eggs=eggs+?, stock=stock+?, reserved=reserved+? WHERE id=?", s["eggs"],
-          s["eggs"] // 10 if s["source"] == "offer" else 0, s["eggs"] if s["source"] == "reserve" else 0, fid)
+        if s["source"] == "dirty":
+            q("UPDATE farms SET dirty=dirty+? WHERE id=?", s["eggs"], fid)
+        else:
+            q("UPDATE farms SET eggs=eggs+?, stock=stock+?, reserved=reserved+? WHERE id=?", s["eggs"],
+              s["eggs"] // 10 if s["source"] == "offer" else 0, s["eggs"] if s["source"] == "reserve" else 0, fid)
         q("DELETE FROM eggs WHERE sale_id=?", sid)
         q("DELETE FROM ledger WHERE sale_id=?", sid)
         q("DELETE FROM sales WHERE id=?", sid)

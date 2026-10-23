@@ -414,6 +414,12 @@ def create_app(test_config=None):
                 return err("Czas pracy silnika drzwi od 1 do 300 s")
             q("UPDATE devices SET door_run_s=? WHERE id=?", b["door_run_s"], did)
             commit()
+        if "building_id" in b:
+            if b["building_id"] is not None and (not integer(b["building_id"], 1, 10 ** 9) or
+                                                 not q("SELECT 1 FROM buildings WHERE id=? AND farm_id=?", b["building_id"], g.user["farm_id"]).fetchone()):
+                return err("Nieznany budynek")
+            q("UPDATE devices SET building_id=? WHERE id=?", b["building_id"], did)
+            commit()
         return jsonify(dev_json(own_device(did)))
 
     @app.post("/api/my/devices/<int:did>/door")
@@ -619,7 +625,7 @@ def create_app(test_config=None):
     clients.register(app, need, q, commit, body, err, integer)
 
     # ---------- stado i jaja ----------
-    FLOCK = dict(name="", birds=0, breed="", since="", notes="")
+    FLOCK = dict(name="", birds=0, breed="", since="", notes="", building_id=None)
 
     def flock_save(b, old):
         f = {**FLOCK, **({k: old[k] for k in FLOCK} if old else {}), **{k: b[k] for k in FLOCK if k in b}}
@@ -632,12 +638,15 @@ def create_app(test_config=None):
                 return err(f"Pole {k} może mieć do {n} znaków")
         if not isinstance(f["since"], str) or (f["since"] and not valid_date(f["since"])):
             return err("Data w formacie RRRR-MM-DD")
-        vals = [f["name"].strip(), f["birds"], f["breed"].strip(), f["since"], f["notes"].strip()]
+        if f["building_id"] is not None and (not integer(f["building_id"], 1, 10 ** 9) or
+                                             not q("SELECT 1 FROM buildings WHERE id=? AND farm_id=?", f["building_id"], g.user["farm_id"]).fetchone()):
+            return err("Nieznany budynek")
+        vals = [f["name"].strip(), f["birds"], f["breed"].strip(), f["since"], f["notes"].strip(), f["building_id"]]
         if old:
-            q("UPDATE flocks SET name=?,birds=?,breed=?,since=?,notes=? WHERE id=?", *vals, old["id"])
+            q("UPDATE flocks SET name=?,birds=?,breed=?,since=?,notes=?,building_id=? WHERE id=?", *vals, old["id"])
             fid = old["id"]
         else:
-            fid = q("INSERT INTO flocks(farm_id,name,birds,breed,since,notes) VALUES(?,?,?,?,?,?)", g.user["farm_id"], *vals).lastrowid
+            fid = q("INSERT INTO flocks(farm_id,name,birds,breed,since,notes,building_id) VALUES(?,?,?,?,?,?,?)", g.user["farm_id"], *vals).lastrowid
         commit()
         return jsonify(dict(q("SELECT * FROM flocks WHERE id=?", fid).fetchone())), 200 if old else 201
 
