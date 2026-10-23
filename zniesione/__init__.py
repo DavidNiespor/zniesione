@@ -1,4 +1,5 @@
 import hashlib
+import io
 import json
 import math
 import os
@@ -7,15 +8,16 @@ import secrets
 import sys
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import wraps
 
 import click
-from flask import Flask, g, jsonify, request, send_from_directory, session
+from flask import Flask, g, jsonify, request, send_file, send_from_directory, session
 from flask.sessions import SecureCookieSessionInterface
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from . import analytics
 from . import catalog as cat
 from . import db as dbm
 from . import clients
@@ -280,9 +282,12 @@ def create_app(test_config=None):
         mode, pickup = b.get("mode", "once"), b.get("pickup", "pickup")
         if mode not in MODES or pickup not in PICKUPS:
             return err("Niepoprawny rodzaj zamówienia lub odbioru")
-        oid = q("INSERT INTO orders(farm_id,name,phone,qty,mode,pickup,total,created,client_id) VALUES(?,?,?,?,?,?,?,?,?)",
+        due = b.get("due_date", "")  # kiedy klient chce odebrać (opcjonalnie): dziś do 60 dni naprzód
+        if due != "" and (not valid_date(due) or not date.today().isoformat() <= due <= (date.today() + timedelta(days=60)).isoformat()):
+            return err("Termin odbioru: od dziś do 60 dni naprzód")
+        oid = q("INSERT INTO orders(farm_id,name,phone,qty,mode,pickup,total,created,client_id,due_date) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 fid, name, phone, qty, mode, pickup, qty * f["price10"], datetime.now().isoformat(),
-                clients.ensure_client(dbm.get(), fid, name, phone)).lastrowid  # klient trafia do kartoteki rolnika
+                clients.ensure_client(dbm.get(), fid, name, phone), due).lastrowid  # klient trafia do kartoteki rolnika
         commit()
         return jsonify(id=oid, status="pending", total=qty * f["price10"]), 201
 
@@ -672,6 +677,7 @@ def create_app(test_config=None):
     farmbook.register(app, need, q, commit, body, err, integer)
     feed.register(app, need, q, commit, body, err)
     team.register(app, need, q, commit, body, err)
+    analytics.register(app, need, q, commit, body, err)
 
     # ---------- baza wiedzy ----------
     def kb_json(r, full=True):
@@ -813,6 +819,63 @@ def create_app(test_config=None):
         d = os.path.join(os.path.dirname(os.path.abspath(app.config["DATABASE"])), "uploads")
         os.makedirs(d, exist_ok=True)
         return d
+
+    # ---------- kopia zapasowa całej bazy: pobranie na komputer i przywrócenie ----------
+    @app.get("/api/admin/backup")
+    @need("admin")
+    def admin_backup():
+        import sqlite3 as _sq
+        path = os.path.join(uploads_dir(), f"kopia-{secrets.token_hex(6)}.db")
+        dst = _sq.connect(path)
+        try:
+            with dst:
+                dbm.get().backup(dst)  # spójna kopia także w trakcie pracy portalu
+        finally:
+            dst.close()
+        with open(path, "rb") as fh:
+            data = fh.read()
+        os.remove(path)
+        return send_file(io.BytesIO(data), mimetype="application/vnd.sqlite3", as_attachment=True,
+                         download_name=f"zniesione-{datetime.now():%Y-%m-%d_%H%M}.db")
+
+    @app.post("/api/admin/restore")
+    @need("admin")
+    def admin_restore():
+        """Przywraca całą bazę z pliku kopii. Bieżąca baza zostaje najpierw zapisana obok (uploads/przed-przywroceniem-*.db)."""
+        import sqlite3 as _sq
+        f = request.files.get("file")
+        if not f:
+            return err("Wybierz plik kopii bazy portalu (.db)")
+        if request.form.get("confirm") != "PRZYWRÓĆ":
+            return err("Wpisz PRZYWRÓĆ, aby potwierdzić zastąpienie wszystkich danych")
+        path = os.path.join(uploads_dir(), f"przywracana-{secrets.token_hex(6)}.db")
+        f.save(path)
+        src = None
+        try:
+            src = _sq.connect(f"file:{path}?mode=ro", uri=True)
+            tables = {r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            ok = {"users", "farms", "devices"} <= tables and src.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+            if ok and not src.execute("SELECT 1 FROM users WHERE role='admin'").fetchone():
+                ok = False  # bez konta admina nikt nie mógłby się zalogować do panelu
+            if not ok:
+                return err("To nie jest poprawna kopia bazy portalu (brak tabel, konta admina albo plik uszkodzony)")
+            live = dbm.get()
+            before = _sq.connect(os.path.join(uploads_dir(), f"przed-przywroceniem-{datetime.now():%Y-%m-%d_%H%M%S}.db"))
+            with before:
+                live.backup(before)
+            before.close()
+            src.backup(live)
+            live.executescript(dbm.SCHEMA)  # starsza kopia dostaje nowe tabele i kolumny
+            dbm.migrate(live)
+            live.commit()
+        except _sq.DatabaseError:
+            return err("To nie jest plik bazy SQLite")
+        finally:
+            if src:
+                src.close()
+            os.remove(path)
+        session.clear()  # identyfikatory kont mogły się zmienić: zaloguj się ponownie
+        return jsonify(ok=True)
 
     @app.post("/api/admin/ekurnik/upload")
     @need("admin")
