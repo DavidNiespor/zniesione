@@ -5,7 +5,7 @@
 # Instrukcja: docs/WDROZENIE.md
 #
 # Portal i WireGuard działają we wspólnej sieci kontenera „siec”, więc portal widzi sterowniki pod adresami 10.8.0.x.
-# W Cloudflare (Public Hostname) adres usługi to:  http://portal:8000
+# W Cloudflare (Published application routes / Public Hostname) adres usługi to:  http://portal:8000
 name: zniesione
 
 services:

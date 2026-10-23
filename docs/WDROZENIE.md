@@ -37,8 +37,9 @@ Oba sposoby uruchamiają ten sam plik `docker-compose.yml` z GitHuba.
 2. **Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared**, nazwa np. `zniesione`.
 3. Na ekranie instalacji wybierz **Docker** i skopiuj token z polecenia (ciąg po `--token`). To jest `TUNNEL_TOKEN`.
    Samego polecenia nie uruchamiaj: `cloudflared` jest już w stacku.
-4. **Public Hostname → Add**: Subdomain puste (albo np. `portal`), Domain: Twoja domena,
-   Service: Type **HTTP**, URL **`portal:8000`**.
+4. W tunelu dodaj adres strony: **Published application routes** (w starszym panelu **Public Hostname**) → **Add**:
+   Subdomain puste (albo `www`), Domain: Twoja domena, Path puste, Service URL **`http://portal:8000`**
+   (w starszym panelu: Type **HTTP** i URL `portal:8000`). Nie `https://`: szyfrowanie zapewnia Cloudflare.
 5. **SSL/TLS → Edge Certificates → Always Use HTTPS**: włącz. Logowanie działa tylko przez `https://`.
 6. **DNS → Add record** dla sterowników: typ **A**, nazwa `wg`, adres = publiczny IP serwera, **Proxy: DNS only** (szara chmurka).
    Cloudflare nie przenosi WireGuard, więc ten rekord musi omijać proxy.
@@ -101,7 +102,7 @@ Odtworzenie: `docker compose stop zniesione`, skopiuj wybrany plik jako `/data/z
 | Objaw | Przyczyna i rozwiązanie |
 |---|---|
 | „Bind for 0.0.0.0:… port is already allocated” | Port jest zajęty przez inną usługę. Stack wystawia tylko `WG_PORT` (domyślnie 51820/UDP): jeśli i ten jest zajęty, ustaw inny `WG_PORT` i ten sam port w Konfiguracji admina. |
-| Cloudflare: błąd 502 | W Public Hostname adres usługi musi być `portal:8000` (typ HTTP). |
+| Cloudflare: błąd 502 | Adres usługi w tunelu musi być `http://portal:8000` (nie `https://`, nie `localhost`). |
 | Logowanie nie trzyma sesji | Portal otwarty przez `http://` lub po IP. Używaj `https://` i domeny. |
 | Sterownik „Brak połączenia” | Rekord `wg` z wyłączonym proxy, otwarty port UDP, poprawny adres i port w Konfiguracji, wgrany secrets.yaml. Podgląd tunelu: `docker compose exec wireguard wg show`. |
 | `wireguard` restartuje się | Brak WireGuard w jądrze (`sudo modprobe wireguard`) albo brak `cap_add: NET_ADMIN`. |
