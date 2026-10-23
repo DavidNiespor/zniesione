@@ -277,19 +277,19 @@ async function vEggs(arg) {
       <div class="actions"><button class="pri">Zapisz zbiór</button></div></form>
     <form class="card" data-f="sort" id="f-sort"><h2>🧽 Sortowanie</h2><p class="mu">Do sortowania: <b data-unsorted>${p.unsorted} szt.</b>
       Dobre trafią do magazynu. Brudne i uszkodzone nie idą do sprzedaży.</p>
-      <div class="row"><div><label for="so-g">Dobre</label><input id="so-g" name="good" type="number" min="0" value="${p.unsorted}" inputmode="numeric"></div>
+      <div class="row tight"><div><label for="so-g">Dobre</label><input id="so-g" name="good" type="number" min="0" value="${p.unsorted}" inputmode="numeric"></div>
       <div><label for="so-d">Brudne</label><input id="so-d" name="dirty" type="number" min="0" value="0" inputmode="numeric"></div>
       <div><label for="so-u">Uszkodzone</label><input id="so-u" name="damaged" type="number" min="0" value="0" inputmode="numeric"></div></div>
       <p class="mu" data-sortsum aria-live="polite"></p>
       <div class="actions"><button class="pri"${p.unsorted ? '' : ' disabled'}>Zapisz sortowanie</button></div></form>
     <form class="card" data-f="alloc"><h2>🏷️ Sklep i rezerwa</h2><p class="mu">Ile opakowań ogłaszasz w sklepie, a ile sztuk odkładasz dla stałych klientów.</p>
-      <div class="row"><div><label for="al-o">W sklepie (opak. po 10 szt.)</label><input id="al-o" name="offer_packs" type="number" min="0" value="${p.offer_packs}" required inputmode="numeric"></div>
+      <div class="row tight"><div><label for="al-o">W sklepie (opak. po 10 szt.)</label><input id="al-o" name="offer_packs" type="number" min="0" value="${p.offer_packs}" required inputmode="numeric"></div>
       <div><label for="al-r">Rezerwa (szt.)</label><input id="al-r" name="reserved" type="number" min="0" value="${p.reserved}" required inputmode="numeric"></div></div>
       ${lg.reserve_needed_7d ? `<p class="mu">Stali klienci w najbliższych 7 dniach: <b>${lg.reserve_needed_7d} szt.</b>
         <button type="button" class="sm" data-act="reserveneed" data-v="${lg.reserve_needed_7d}">Zarezerwuj tyle</button></p>` : ''}
       <p class="mu" data-allocsum aria-live="polite"></p><div class="actions"><button class="pri">Zapisz</button></div></form>
     <form class="card" data-f="gift"><h2>🎁 Rozdane</h2><p class="mu">Jaja dla rodziny i znajomych (np. mama), żeby wiedzieć, ile idzie poza sprzedaż.</p>
-      <div class="row"><div><label for="gi-n">Ile sztuk</label><input id="gi-n" name="eggs" type="number" min="1" required inputmode="numeric"></div>
+      <div class="row tight"><div><label for="gi-n">Ile sztuk</label><input id="gi-n" name="eggs" type="number" min="1" required inputmode="numeric"></div>
       <div><label for="gi-w">Komu</label><input id="gi-w" name="who" list="gi-list" required maxlength="60" placeholder="np. mama"></div></div>
       <datalist id="gi-list">${['Mama', 'Rodzina', ...lg.recipients].filter((x, i, a) => a.indexOf(x) === i).map(w => `<option value="${esc(w)}">`).join('')}</datalist>
       <label for="gi-o">Uwagi</label><input id="gi-o" name="note" maxlength="200">
@@ -396,8 +396,8 @@ async function vClients(arg) {
 }
 function historyRows(h) {
   return h.map(e => `<li><time datetime="${esc(e.at)}">${day(e.at)}</time><div class="tb"><b>${LEDGER[e.kind]}${e.method ? ' · ' + PAY[e.method][1] : ''}</b>
-    <span class="mu">${esc(e.note)}</span></div><b class="${e.amount > 0 ? 'no' : 'ok'}">${e.amount > 0 ? '+' : '−'}${zl(Math.abs(e.amount))}</b>
-    <span class="mu" style="min-width:7rem;text-align:right">saldo: ${balInfo(e.balance_after).short}</span></li>`).join('') || '<li class="mu">Brak zakupów i wpłat.</li>';
+    <span class="mu">${esc(e.note)}</span><span class="mu">saldo po: ${balInfo(e.balance_after).short}</span></div>
+    <b class="${e.amount > 0 ? 'no' : 'ok'}">${e.amount > 0 ? '+' : '−'}${zl(Math.abs(e.amount))}</b></li>`).join('') || '<li class="mu">Brak zakupów i wpłat.</li>';
 }
 async function vClientCard(id) {
   const [c, subs] = await Promise.all([load('/api/my/clients/' + encodeURIComponent(id)), load('/api/my/subscriptions?client_id=' + encodeURIComponent(id))]);
@@ -610,7 +610,7 @@ async function vExpenses() {
     `<button data-act="expdays" data-v="${d}" aria-pressed="${d === expDays}">${t}</button>`).join('')}</div>
     <div class="stats" style="margin-top:.8rem">${stat('Razem', zl(r.total), r.entries.length + ' wpisów')}</div>
     ${cats.length ? `<ul class="list" style="margin-top:.6rem">${cats.map(([c, v]) => `<li><div class="tb"><b>${esc(c)}</b>
-      <span class="bar" style="--w:${Math.round(v / max * 100)}%" aria-hidden="true"></span></div><b>${zl(v)}</b></li>`).join('')}</ul>` : ''}</section>
+      <span class="cbar" style="--w:${Math.round(v / max * 100)}%" aria-hidden="true"></span></div><b>${zl(v)}</b></li>`).join('')}</ul>` : ''}</section>
     <section class="card"><h2>➕ Nowy wydatek</h2><form data-f="expense"><div class="row">
       <div><label for="ex-d">Data</label><input id="ex-d" name="date" type="date" value="${new Date().toISOString().slice(0, 10)}" required></div>
       <div><label for="ex-c">Kategoria</label><input id="ex-c" name="category" list="ex-cats" value="Pasza i zboże" required maxlength="60"></div></div>
@@ -839,8 +839,8 @@ function logList(items) {
   return items.map(e => {
     const what = e.kind === 'door_open' && e.state ? 'Drzwi: otwieranie' : e.kind === 'door_close' && e.state ? 'Drzwi: zamykanie'
       : DOORS.includes(e.kind) ? 'Drzwi: silnik zatrzymany' : `${e.ch_name}: ${e.state ? 'włączono' : 'wyłączono'}`;
-    return `<li><time datetime="${esc(e.at)}">${today(e.at) ? hm(e.at) : day(e.at) + ' ' + hm(e.at)}</time><span>${DOORS.includes(e.kind) ? '🚪' : kicon(e.kind)} ${esc(what)}</span>
-      <span class="src">${SRC[e.src] || esc(e.src)}</span>${e.ok ? '' : '<span class="tag-bad">✕ nie udało się</span>'}</li>`;
+    return `<li><time datetime="${esc(e.at)}">${today(e.at) ? hm(e.at) : day(e.at)}</time><div class="tb"><span>${DOORS.includes(e.kind) ? '🚪' : kicon(e.kind)} ${esc(what)}</span>
+      <span class="src">${SRC[e.src] || esc(e.src)}${e.ok ? '' : ' · <span class="tag-bad">✕ nie udało się</span>'}</span></div></li>`;
   }).join('');
 }
 async function reloadLog(id, limit) {
@@ -1009,7 +1009,6 @@ async function vAdminKb(arg) {
     <h2>Podgląd</h2><article class="card prose" data-kbpreview><h1>${esc(a.title) || 'Tytuł'}</h1>${md(a.body)}</article>`;
 }
 async function vAdmin(tab) {
-  setTimeout(() => { $$('form[data-f=fwset]').forEach(fwPins); $$('[data-fw]').forEach(x => fwPoll(x.dataset.fw, true)) });
   let h = '<h1>Administrator</h1>' + adminTabs(tab === 'dev' ? 'admin' : 'admin-' + tab);
   if (tab === 'dev') {
     const [dv, fm, ct] = await Promise.all([load('/api/admin/devices'), load('/api/farms'), load('/api/catalog')]);
@@ -1036,7 +1035,7 @@ async function vAdmin(tab) {
       ${fld('Podsieć (3 oktety)', 'net', 'text', `value="${esc(c.net)}"`)}<div class="actions"><button class="pri">Zapisz</button></div></form></section>`;
   } else h += `<section class="card"><h2>Silnik harmonogramów i termostatu</h2><p class="mu">Uruchamia jeden obieg: zaplanowane wyłączenia, harmonogramy, drzwi i termostat. Wysyła tylko różnice.</p>
     <button class="pri" data-act="tick">Uruchom silnik teraz</button><pre id="tickout" hidden></pre></section>`;
-  return h;
+  return {html: h, after: () => { $$('form[data-f=fwset]').forEach(fwPins); $$('[data-fw]').forEach(x => fwPoll(x.dataset.fw, true)) }};
 }
 
 // ---------- zdarzenia ----------
