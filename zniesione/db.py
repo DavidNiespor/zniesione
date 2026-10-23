@@ -96,7 +96,7 @@ COLUMNS = [
     ("farms", "chores", "TEXT NOT NULL DEFAULT ''"), ("farms", "chores_amounts", "INTEGER NOT NULL DEFAULT 1"),  # lista obowiązków (pusta = wyłączona)
     ("farms", "ha_enabled", "INTEGER NOT NULL DEFAULT 0"),  # sterowniki z Home Assistant (włącza administrator)
     ("devices", "ha_url", "TEXT NOT NULL DEFAULT ''"), ("devices", "ha_token", "TEXT NOT NULL DEFAULT ''"),
-    ("devices", "ha_temp", "TEXT NOT NULL DEFAULT ''"), ("devices", "ha_hum", "TEXT NOT NULL DEFAULT ''"),
+    ("devices", "ha_error", "TEXT NOT NULL DEFAULT ''"), ("devices", "ha_temp", "TEXT NOT NULL DEFAULT ''"), ("devices", "ha_hum", "TEXT NOT NULL DEFAULT ''"),
     ("farms", "archive_name", "TEXT NOT NULL DEFAULT ''"), ("farms", "archive_at", "TEXT NOT NULL DEFAULT ''"),
     ("eggs", "user_id", "INTEGER"), ("sales", "user_id", "INTEGER"), ("ledger", "user_id", "INTEGER"),
     ("feed_moves", "user_id", "INTEGER"), ("mixes", "user_id", "INTEGER"), ("expenses", "user_id", "INTEGER"),

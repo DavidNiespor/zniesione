@@ -205,7 +205,8 @@ def create_app(test_config=None):
                         "wifi_ssid": d["wifi_ssid"], "wifi_set": bool(d["wifi_password"]), "fw_job": d["fw_job"],
                         "chip": "ESP32-S3" if "s3" in cat.MODELS[d["model"]].get("board", "") else "ESP32",
                         "firmware": not any(cat.MODELS[d["model"]].get(k) for k in ("shelly", "eth", "own"))} if admin else {}),
-                    **({"ha_url": d["ha_url"], "ha_token_set": bool(d["ha_token"]), "ha_temp": d["ha_temp"], "ha_hum": d["ha_hum"]}
+                    **({"ha_url": d["ha_url"], "ha_token_set": bool(d["ha_token"]), "ha_temp": d["ha_temp"], "ha_hum": d["ha_hum"],
+                          "ha_error": d["ha_error"]}
                        if d["model"] == "ha" else {}))
 
     def new_device(model, farm_id, tunnel, addr):

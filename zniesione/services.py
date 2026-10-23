@@ -346,17 +346,55 @@ def ha_base(dev):
     return f"http://{dev['ip']}:8123" if dev["tunnel"] == "wg" else (dev["ha_url"] or "").rstrip("/")
 
 
+def ha_error(code, text, wg):
+    """Czytelny powód błędu połączenia z Home Assistant (pokazywany rolnikowi przy wyborze encji)."""
+    if code == 401:
+        return "Home Assistant odrzucił token (401). Utwórz nowy token długoterminowy i wklej go w „Zmień token”."
+    if code == 403:
+        return ("Połączenie zablokowane (403)" + (": to strona Cloudflare. Wyłącz dla tego adresu Bot Fight Mode / Cloudflare Access "
+                "albo połącz HA przez WireGuard." if "cloudflare" in text.lower() else ". Sprawdź token i ustawienia http w Home Assistant."))
+    if code == 404:
+        return "Pod tym adresem nie ma API Home Assistant (404). Podaj sam adres HA, bez ścieżki, np. https://dom.example.pl"
+    if code == "html":
+        return ("Adres zwraca stronę zamiast API Home Assistant" + (" (prawdopodobnie Cloudflare). Wyłącz ochronę przed botami dla tego adresu "
+                "albo połącz HA przez WireGuard." if "cloudflare" in text.lower() else ". Sprawdź, czy to adres HA, a nie np. strona logowania."))
+    if code == "timeout":
+        return ("Home Assistant nie odpowiada w tunelu WireGuard. Sprawdź w HA, czy dodatek WireGuard jest uruchomiony z konfiguracją z portalu "
+                "(status połączenia, Endpoint i port UDP otwarty na serwerze)." if wg else "Home Assistant nie odpowiada pod tym adresem (przekroczony czas).")
+    if code == "dns":
+        return "Nie znaleziono adresu Home Assistant (DNS). Sprawdź pisownię; adres musi być dostępny z internetu, nie tylko w domu."
+    if code == "ssl":
+        return f"Błąd certyfikatu HTTPS adresu Home Assistant: {text}"
+    if code == "refused":
+        return "Połączenie odrzucone: pod tym adresem i portem nie działa Home Assistant (domyślnie port 8123)."
+    return f"Home Assistant: HTTP {code}" + (f" ({text[:120]})" if text else "")
+
+
 def ha_call(dev, method, path, body=None):
-    """REST API Home Assistant (token długoterminowy). Zwraca (kod HTTP, JSON albo komunikat błędu)."""
+    """REST API Home Assistant (token długoterminowy). Zwraca (kod HTTP, JSON albo {"error": powód})."""
+    wg = dev["tunnel"] == "wg"
     req = urllib.request.Request(ha_base(dev) + path, method=method, data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Authorization": f"Bearer {dev['ha_token'] or ''}", "Content-Type": "application/json"})
+                                 headers={"Authorization": f"Bearer {(dev['ha_token'] or '').strip()}", "Content-Type": "application/json",
+                                          "Accept": "application/json", "User-Agent": "zniesione-portal/1.0"})  # Cloudflare blokuje „Python-urllib”
     try:
-        with urllib.request.urlopen(req, timeout=6) as r:
-            return r.status, json.loads(r.read(2_000_000) or b"null")
+        with urllib.request.urlopen(req, timeout=8) as r:
+            raw = r.read(2_000_000)
     except urllib.error.HTTPError as e:
-        return e.code, {"error": "Home Assistant odrzucił token" if e.code == 401 else f"HTTP {e.code}"}
-    except (OSError, ValueError) as e:
-        return 503, {"error": f"Brak połączenia z Home Assistant: {e}"}
+        text = e.read(2000).decode("utf-8", "replace") if e.fp else ""
+        return e.code, {"error": ha_error(e.code, text, wg)}
+    except urllib.error.URLError as e:
+        reason = e.reason
+        kind = "timeout" if isinstance(reason, TimeoutError) or "timed out" in str(reason) else \
+            "ssl" if "CERTIFICATE" in str(reason).upper() or "SSL" in type(reason).__name__ else \
+            "dns" if "getaddrinfo" in str(reason) or "Name or service" in str(reason) or "nodename" in str(reason) else \
+            "refused" if isinstance(reason, ConnectionRefusedError) else None
+        return 503, {"error": ha_error(kind, str(reason), wg) if kind else f"Brak połączenia z Home Assistant: {reason}"}
+    except (TimeoutError, OSError) as e:
+        return 503, {"error": ha_error("timeout", str(e), wg)}
+    try:
+        return 200, json.loads(raw or b"null")
+    except ValueError:
+        return 502, {"error": ha_error("html", raw[:3000].decode("utf-8", "replace"), wg)}
 
 
 def send_http(dev, ch, state):
@@ -469,9 +507,10 @@ def poll_ha(app, now):
             if d["id"] in last and (now - last[d["id"]]).total_seconds() < HA_POLL_S:
                 continue
             last[d["id"]] = now
-            code, _ = app.config["HA_CALL"](dict(d), "GET", "/api/")
-            if code != 200:
-                continue  # offline ustawi silnik po OFFLINE_S bez kontaktu
+            code, js = app.config["HA_CALL"](dict(d), "GET", "/api/")
+            if code != 200:  # offline ustawi silnik po OFFLINE_S bez kontaktu; powód widać w karcie sterownika
+                db.execute("UPDATE devices SET ha_error=? WHERE id=?", ((js or {}).get("error", f"HTTP {code}") if isinstance(js, dict) else f"HTTP {code}", d["id"]))
+                continue
             vals = {}
             for k, col in (("t", "ha_temp"), ("h", "ha_hum")):
                 if d[col]:
@@ -480,7 +519,7 @@ def poll_ha(app, now):
                         vals[k] = float(js["state"]) if c2 == 200 else None
                     except (TypeError, ValueError, KeyError):
                         vals[k] = None  # np. "unavailable"
-            db.execute("UPDATE devices SET online=1, last_seen=? WHERE id=?", (now.isoformat(), d["id"]))
+            db.execute("UPDATE devices SET online=1, last_seen=?, ha_error='' WHERE id=?", (now.isoformat(), d["id"]))
             if any(v is not None for v in vals.values()):
                 db.execute("INSERT INTO readings(device_id,t,h,at) VALUES(?,?,?,?)", (d["id"], vals.get("t"), vals.get("h"), now.isoformat()))
         db.commit()

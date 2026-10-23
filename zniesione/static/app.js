@@ -1009,6 +1009,7 @@ function haCard(d, bs) {
     ? `przez WireGuard (adres ${esc(d.ip)}:8123)` : esc(d.ha_url)} · ${d.channels.length} encji${d.ha_temp ? ' · czujnik temperatury' : ''}</p></div>${statusBadge(d)}</div>
     ${d.tunnel === 'wg' ? textBox('hawg' + d.id, `/api/my/devices/${d.id}/ha/wireguard`, '🔐 Konfiguracja WireGuard dla Home Assistant',
       WG_HELP + '<p class="mu">W Home Assistant: dodatek WireGuard Client (lub inny klient WireGuard) z tymi wartościami. Portal łączy się z HA pod adresem z linii Address, port 8123.</p>') : ''}
+    ${d.ha_error ? `<div class="alert bad" role="status"><b>Ostatni błąd połączenia z Home Assistant</b>${esc(d.ha_error)}</div>` : ''}
     <div class="actions"><button class="pri" data-act="haent" data-id="${d.id}">Wybierz encje z Home Assistant</button>${d.channels.length ? '<button data-act="go" data-v="sterowanie">Przejdź do sterowania</button>' : ''}</div>
     <div data-haent="${d.id}"></div>
     ${bs.length ? `<label for="db${d.id}">Budynek</label><select id="db${d.id}" class="devbld" data-id="${d.id}"><option value="">— bez budynku —</option>${bs.map(b =>

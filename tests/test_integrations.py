@@ -94,6 +94,7 @@ def test_ha_device_wireguard_entities_control_and_readings(app, admin, farmer, f
     assert [x["key"] for x in r["channels"]] == ["light.wybieg"]
     assert c.patch(f"/api/my/devices/{d['id']}/ha", {"token": "zly"}).status_code == 200
     assert c.get(f"/api/my/devices/{d['id']}/ha/entities").status_code == 502
+    assert "token" in c.get("/api/my/devices").get_json()[0]["ha_error"]                 # powód błędu widać w karcie
 
 
 def test_ha_by_url(app, admin, farmer):
@@ -170,3 +171,50 @@ def test_snapshot_reads_thingino_image_jpg_with_basic_auth(monkeypatch):
     monkeypatch.delenv("CAMERA_BASE", raising=False)
     assert sv.cam_fetch({"ip": "10.8.0.20", "cam_user": "thingino", "cam_pass": "thingino"}) == (True, JPEG)
     assert seen == {"url": "http://10.8.0.20/image.jpg", "auth": "Basic dGhpbmdpbm86dGhpbmdpbm8="}
+
+
+def test_ha_call_real_http_errors_are_explained():
+    """Prawdziwe połączenia HTTP do lokalnej atrapy HA: token, Cloudflare, strona zamiast API, zamknięty port, nagłówek User-Agent."""
+    import json as _json
+    import socket
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    seen = {}
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen["ua"], seen["auth"] = self.headers.get("User-Agent"), self.headers.get("Authorization")
+            code, ctype, body = {"/ok/api/": (200, "application/json", _json.dumps({"message": "API running."})),
+                                 "/bad/api/": (401, "application/json", "{}"),
+                                 "/cf/api/": (403, "text/html", "<title>Attention Required! | Cloudflare</title>"),
+                                 "/html/api/": (200, "text/html", "<html>Cloudflare challenge</html>")}.get(self.path, (404, "text/plain", "x"))
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.end_headers()
+            self.wfile.write(body.encode())
+
+        def log_message(self, *a):
+            pass
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_port}"
+    dev = lambda p, tok="tajny": {"tunnel": "url", "ha_url": base + p, "ha_token": tok + "\n", "ip": "10.8.0.9"}
+    try:
+        assert sv.ha_call(dev("/ok"), "GET", "/api/") == (200, {"message": "API running."})
+        assert seen == {"ua": "zniesione-portal/1.0", "auth": "Bearer tajny"}           # token bez znaku nowej linii z wklejenia
+        c, js = sv.ha_call(dev("/bad"), "GET", "/api/")
+        assert c == 401 and "token" in js["error"]
+        c, js = sv.ha_call(dev("/cf"), "GET", "/api/")
+        assert c == 403 and "Cloudflare" in js["error"]
+        c, js = sv.ha_call(dev("/html"), "GET", "/api/")
+        assert c == 502 and "stronę zamiast API" in js["error"]
+        c, js = sv.ha_call(dev("/x"), "GET", "/api/")
+        assert c == 404 and "bez ścieżki" in js["error"]
+    finally:
+        srv.shutdown()
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()                                                                            # port na pewno zamknięty
+    c, js = sv.ha_call({"tunnel": "url", "ha_url": f"http://127.0.0.1:{port}", "ha_token": "t", "ip": ""}, "GET", "/api/")
+    assert c == 503 and "odrzucone" in js["error"]

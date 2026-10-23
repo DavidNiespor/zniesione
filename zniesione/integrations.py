@@ -143,6 +143,8 @@ def register(app, need, q, commit, body, err, integer, dev_json, wg_sync, own_de
             return err("Nie znaleziono", 404)
         code, js = app.config["HA_CALL"](dict(d), "GET", "/api/states")
         if code != 200 or not isinstance(js, list):
+            q("UPDATE devices SET ha_error=? WHERE id=?", js.get("error", f"HTTP {code}") if isinstance(js, dict) else f"HTTP {code}", did)
+            commit()
             return err((js or {}).get("error", f"Home Assistant: HTTP {code}") if isinstance(js, dict) else f"Home Assistant: HTTP {code}", 502)
         sw, sens = [], []
         for e in js:
@@ -154,7 +156,7 @@ def register(app, need, q, commit, body, err, integer, dev_json, wg_sync, own_de
             elif dom == "sensor" and (at.get("device_class") in ("temperature", "humidity") or at.get("unit_of_measurement") in ("°C", "%")):
                 sens.append(dict(item, kind="h" if at.get("device_class") == "humidity" or at.get("unit_of_measurement") == "%" else "t",
                                  unit=str(at.get("unit_of_measurement") or "")))
-        q("UPDATE devices SET online=1, last_seen=? WHERE id=?", datetime.now().isoformat(), did)
+        q("UPDATE devices SET online=1, last_seen=?, ha_error='' WHERE id=?", datetime.now().isoformat(), did)
         commit()
         return jsonify(switches=sorted(sw, key=lambda x: x["entity_id"]), sensors=sorted(sens, key=lambda x: x["entity_id"]))
 
