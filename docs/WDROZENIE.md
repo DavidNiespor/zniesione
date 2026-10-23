@@ -161,7 +161,7 @@ setup email del jan@zniesione.pl            # usunięcie skrzynki
 Hasło do portalu zmieniasz osobno (konta portalu i poczty są niezależne). Kolejnego administratora portalu dodasz
 w konsoli kontenera `zniesione`: `flask --app zniesione create-admin`.
 
-## 7. Sprawdzenie poczty
+## 10. Sprawdzenie poczty
 
 1. Wyślij list z `admin@zniesione.pl` na swój adres Gmail i odpowiedz na niego.
 2. W Gmailu: list → ⋮ → **Pokaż oryginał**: SPF, DKIM i DMARC powinny mieć wynik **PASS**.
