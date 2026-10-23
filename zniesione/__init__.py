@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timedelta
 from functools import wraps
 
+import click
 from flask import Flask, g, jsonify, request, send_from_directory, session
 from flask.sessions import SecureCookieSessionInterface
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -17,6 +18,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from . import catalog as cat
 from . import db as dbm
 from . import clients
+from . import ekurnik
 from . import farmbook
 from . import services as sv
 
@@ -802,6 +804,30 @@ def create_app(test_config=None):
         q("INSERT INTO users(email,pw,role) VALUES(?,?,?)", email.lower(), generate_password_hash(pw), "admin")
         commit()
         click.echo("Utworzono administratora")
+
+    @app.cli.command("import-ekurnik")
+    @click.argument("path", type=click.Path(exists=True, dir_okay=False))
+    @click.option("--email", required=True, help="E-mail konta rolnika w portalu, do którego farmy trafią dane")
+    @click.option("--gid", type=int, help="Numer gospodarstwa w e-kurniku (gdy jest ich kilka)")
+    def import_ekurnik_cmd(path, email, gid):
+        """Import danych z kopii bazy e-kurnika (klienci, salda, sprzedaż, zbiory, wydatki, wyposażenie...)."""
+        import sqlite3 as _sq
+        u = q("SELECT * FROM users WHERE email=? AND role='farmer'", email.strip().lower()).fetchone()
+        if not u:
+            raise click.ClickException(f"Nie ma konta rolnika {email}")
+        src = _sq.connect(f"file:{path}?mode=ro", uri=True)
+        farms = [f for f in ekurnik.farms_summary(src) if f[2] or f[3]]
+        src.close()
+        if gid is None:
+            if len(farms) != 1:
+                lines = "\n".join(f"  --gid {f[0]}: {f[1]} (klientów: {f[2]}, dni zbiorów: {f[3]})" for f in farms)
+                raise click.ClickException("W bazie jest kilka gospodarstw z danymi, wybierz jedno:\n" + lines)
+            gid = farms[0][0]
+        try:
+            n = ekurnik.import_ekurnik(dbm.get(), path, u["farm_id"], gid)
+        except ValueError as e:
+            raise click.ClickException(str(e))
+        click.echo("Zaimportowano: " + ", ".join(f"{k}: {v}" for k, v in n.items()))
 
     @app.cli.command("seed-demo")
     def seed_demo():
