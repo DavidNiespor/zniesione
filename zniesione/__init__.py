@@ -111,7 +111,7 @@ def create_app(test_config=None):
                       SMTP_USER=os.environ.get("SMTP_USER", ""), SMTP_PASSWORD=os.environ.get("SMTP_PASSWORD", ""),
                       MAIL_FROM=os.environ.get("MAIL_FROM", ""), MAIL=farmbook.send_mail,
                       BUILDER_URL=os.environ.get("BUILDER_URL", ""), BUILDER_TOKEN=os.environ.get("BUILDER_TOKEN", ""),
-                      BUILDER_CALL=sv.builder_call,
+                      BUILDER_CALL=sv.builder_call, MAX_CONTENT_LENGTH=64 * 1024 * 1024,
                       SEND=sv.send_http, RUN_SCHEDULER=os.environ.get("RUN_SCHEDULER") == "1")
     app.config.update(test_config or {})
     if app.config["PROXY_COUNT"]:  # za odwrotnym proxy lub Cloudflare Tunnel: adres klienta z X-Forwarded-For
@@ -788,6 +788,69 @@ def create_app(test_config=None):
                 q(f"UPDATE devices SET {k}=? WHERE id=?", b[k], did)
         commit()
         return jsonify(dev_json(q("SELECT * FROM devices WHERE id=?", did).fetchone(), True))
+
+    # ---------- import z e-kurnika z panelu admina ----------
+    def uploads_dir():
+        d = os.path.join(os.path.dirname(os.path.abspath(app.config["DATABASE"])), "uploads")
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    @app.post("/api/admin/ekurnik/upload")
+    @need("admin")
+    def ekurnik_upload():
+        f = request.files.get("file")
+        if not f:
+            return err("Wybierz plik kopii bazy e-kurnika (.db)")
+        token = secrets.token_hex(8)
+        path = os.path.join(uploads_dir(), token + ".db")
+        f.save(path)
+        import sqlite3 as _sq
+        src = _sq.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            farms = [dict(gid=r[0], name=r[1], clients=r[2], days=r[3]) for r in ekurnik.farms_summary(src)]
+        except _sq.DatabaseError:  # to nie jest baza e-kurnika
+            farms = None
+        finally:
+            src.close()  # na Windows otwarty plik nie dałby się usunąć
+        if farms is None:
+            os.remove(path)
+            return err("To nie jest kopia bazy e-kurnika (brak tabeli gospodarstw)")
+        return jsonify(token=token, farms=farms), 201
+
+    @app.post("/api/admin/ekurnik/import")
+    @need("admin")
+    def ekurnik_import():
+        b = body()
+        token, email, gid = b.get("token"), str(b.get("email", "")).strip().lower(), b.get("gid")
+        path = os.path.join(uploads_dir(), f"{token}.db") if isinstance(token, str) and re.fullmatch(r"[0-9a-f]{16}", token) else ""
+        if not path or not os.path.exists(path):
+            return err("Najpierw wgraj plik kopii (albo wgraj go ponownie)", 404)
+        if not integer(gid, 1, 10 ** 9) or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            return err("Wybierz gospodarstwo i podaj e-mail konta rolnika")
+        u = q("SELECT * FROM users WHERE email=?", email).fetchone()
+        if u and u["role"] != "farmer":
+            return err("To konto nie jest kontem rolnika")
+        created = False
+        if not u:  # nowe konto rolnika z farmą nazwaną jak gospodarstwo w e-kurniku
+            pw = b.get("password", "")
+            if not isinstance(pw, str) or len(pw) < 8:
+                return err("Konta nie ma: podaj hasło (min. 8 znaków), żeby je założyć")
+            import sqlite3 as _sq
+            src = _sq.connect(f"file:{path}?mode=ro", uri=True)
+            row = src.execute("SELECT nazwa FROM gospodarstwa WHERE id=?", (gid,)).fetchone()
+            src.close()
+            if not row:
+                return err(f"W kopii nie ma gospodarstwa {gid}")
+            fid = q("INSERT INTO farms(name) VALUES(?)", (str(b.get("farm_name") or row[0] or "Gospodarstwo")).strip()[:100]).lastrowid
+            q("INSERT INTO users(email,pw,role,farm_id) VALUES(?,?,?,?)", email, generate_password_hash(pw), "farmer", fid)
+            commit()
+            u, created = q("SELECT * FROM users WHERE email=?", email).fetchone(), True
+        try:
+            n = ekurnik.import_ekurnik(dbm.get(), path, u["farm_id"], gid)
+        except ValueError as e:
+            return err(str(e), 409)
+        os.remove(path)
+        return jsonify(created=created, email=email, counts=n)
 
     # ---------- firmware ESPHome: kompilacja i wgrywanie z panelu admina (kontener esphome w stacku) ----------
     def fw_device(did):

@@ -41,8 +41,10 @@ def import_ekurnik(db, path, farm_id, gid):
     src.row_factory = sqlite3.Row
     key = f"ekurnik_import_{farm_id}"
     if db.execute("SELECT 1 FROM config WHERE k=?", (key,)).fetchone():
+        src.close()
         raise ValueError("Ta farma ma już zaimportowane dane z e-kurnika")
     if not src.execute("SELECT 1 FROM gospodarstwa WHERE id=?", (gid,)).fetchone():
+        src.close()
         raise ValueError(f"W bazie e-kurnika nie ma gospodarstwa {gid}")
     n = dict(klienci=0, transakcje=0, sprzedaz=0, zbiory=0, straty=0, stada=0, wydatki=0, wyposazenie=0, cykliczne=0, wyrownania=0)
     now = datetime.now().isoformat(timespec="seconds")

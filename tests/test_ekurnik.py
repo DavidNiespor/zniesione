@@ -114,3 +114,23 @@ def test_import_requires_gid_when_many_farms_and_merges_by_phone(app, tmp_path):
     names = [x["name"] for x in c.get("/api/my/clients").get_json()]
     assert "Ola ze sklepu" in names and "Pani Ola" not in names        # ten sam telefon: dopisane do istniejącego klienta
     assert c.get("/api/my/farm").get_json()["price10"] == 13          # cena jajka 1,30 zł/szt. (farma nie miała ceny)
+
+
+def test_admin_uploads_backup_and_imports_into_new_account(app, admin, farmer, tmp_path, anon):
+    import io
+    path = ekurnik_db(tmp_path)
+    up = lambda client, data: client.c.post("/api/admin/ekurnik/upload", data=data, content_type="multipart/form-data",
+                                           headers={"X-Requested-With": "zniesione"})
+    assert up(farmer[0], {"file": (open(path, "rb"), "ferma.db")}).status_code == 403
+    assert up(admin, {"file": (io.BytesIO(b"to nie baza"), "x.db")}).status_code == 400
+    r = up(admin, {"file": (open(path, "rb"), "ferma.db")}).get_json()
+    assert [(f["gid"], f["name"], f["clients"]) for f in r["farms"]] == [(1, "Kurnik", 3), (2, "Pusty", 0)]
+    imp = lambda b: admin.post("/api/admin/ekurnik/import", {"token": r["token"], "gid": 1, **b})
+    assert imp({"email": "d.niespor@gmail.com"}).status_code == 400                       # brak konta i hasła
+    assert imp({"email": "admin@x.pl", "password": "haslo12345"}).status_code == 400     # to admin
+    res = imp({"email": "D.Niespor@gmail.com", "password": "nowe-haslo-1"}).get_json()
+    assert res["created"] and res["counts"]["klienci"] == 3
+    assert imp({"email": "d.niespor@gmail.com"}).status_code == 404                       # plik usunięty po imporcie
+    anon.post("/api/auth/login", {"email": "d.niespor@gmail.com", "password": "nowe-haslo-1"})
+    assert anon.get("/api/my/farm").get_json()["name"] == "Kurnik"
+    assert len(anon.get("/api/my/clients").get_json()) == 3
