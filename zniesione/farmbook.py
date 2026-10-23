@@ -314,8 +314,11 @@ def register(app, need, q, commit, body, err, integer):
             dv = [dict(x) for x in q("SELECT id, code, addr FROM devices WHERE building_id=? AND farm_id=?", r["id"], fid)]
             e = {d: q("SELECT COALESCE(SUM(eggs),0) FROM eggs WHERE farm_id=? AND building_id=? AND kind='collect' AND at>=?", fid, r["id"],
                       (date.today() - timedelta(days=d - 1)).isoformat()).fetchone()[0] for d in (7, 30)}
-            out.append(dict(r, flocks=fl, birds=sum(x["birds"] for x in fl), devices=dv, eggs_7d=e[7], eggs_30d=e[30],
-                            laying_7d=round(e[7] * 100 / (7 * sum(x["birds"] for x in fl)), 1) if fl and sum(x["birds"] for x in fl) else None))
+            n7 = q("SELECT COUNT(DISTINCT substr(at,1,10)) FROM eggs WHERE farm_id=? AND building_id=? AND kind='collect' AND at>=?", fid, r["id"],
+                   (date.today() - timedelta(days=6)).isoformat()).fetchone()[0]  # nieśność tylko z dni, w które wpisano zbiór
+            birds = sum(x["birds"] for x in fl)
+            out.append(dict(r, flocks=fl, birds=birds, devices=dv, eggs_7d=e[7], eggs_30d=e[30],
+                            laying_7d=round(e[7] * 100 / (n7 * birds), 1) if birds and n7 else None))
         return jsonify(out)
 
     @app.route("/api/my/buildings/<int:bid>", methods=["PATCH", "DELETE"])

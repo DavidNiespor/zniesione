@@ -208,3 +208,15 @@ form.inl{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}form.inl input
 .hb li{flex-wrap:nowrap}.hb .tb{min-width:0}.hb b{font-variant-numeric:tabular-nums;white-space:nowrap}
 .row{grid-template-columns:repeat(auto-fit,minmax(min(100%,128px),1fr))}
 .card>details:first-child{border-top:0;margin-top:0}
+
+/* zdjęcia: okładka gospodarstwa w sklepie, miniatury, galeria z usuwaniem */
+.card.farm{display:flex;flex-direction:column}.card.farm .actions{margin-top:auto;padding-top:.6rem}
+img.cover{width:calc(100% + 2rem);margin:-1rem -1rem .8rem;aspect-ratio:16/9;object-fit:cover;border-radius:20px 20px 0 0;display:block;background:var(--sf2)}
+@media(min-width:700px){img.cover{width:calc(100% + 2.5rem);margin:-1.25rem -1.25rem .8rem}}
+.thumbs{display:flex;gap:.4rem;overflow-x:auto;padding:.3rem 0;scrollbar-width:thin}
+.thumbs img{width:88px;height:66px;object-fit:cover;border-radius:10px;border:1px solid var(--ln);display:block;background:var(--sf2)}
+.thumbs.edit figure{flex:none;width:120px;padding:.3rem;border-radius:12px}.thumbs.edit img{width:100%;height:80px}
+.thumbs.edit figcaption{font-size:.78rem;min-height:1em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.thumbs.edit button{width:100%;min-height:36px;margin-top:.2rem}
+.pbox form.inl{margin-top:.4rem}.pbox input[type=file]{padding:.4rem;min-height:44px}
+details.shopmore{margin-top:.6rem}.shopb{border-top:1px solid var(--ln);padding:.5rem 0}.shopb:first-of-type{border-top:0}
+ul.plain{list-style:none;padding:0;margin:.3rem 0}ul.plain li{margin:.35rem 0}

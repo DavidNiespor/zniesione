@@ -131,6 +131,13 @@ z największą liczbą klientów), wpisz e-mail konta rolnika (np. Twój Gmail).
 Import przenosi klientów z saldami, sprzedaż, zbiory, straty, stan magazynu jaj, stada, wydatki, wyposażenie, paszę z recepturami
 i zamówienia cykliczne. Tę samą farmę można zaimportować raz; plik kopii jest usuwany po imporcie.
 
+**Dawny arkusz Google** (dzienne zbiory, sprzedaż w kolumnach z ceną, wydatki) rolnik wgrywa sam: **Więcej → Archiwum**,
+plik CSV z arkusza (Plik → Pobierz → .csv). To podgląd tylko do odczytu: wykresy i tabele, bez zmiany stanów w portalu.
+Z serwera: `docker compose exec zniesione flask --app zniesione import-archive /data/arkusz.csv --email rolnik@...`.
+
+**Zdjęcia** gospodarstwa, budynków i stad zapisują się w wolumenie z bazą (`/data/photos`), więc są w kopiach wolumenu,
+ale nie w pliku `.db` z kopii w panelu admina.
+
 ## 7. Firmware sterownika (ESPHome)
 
 1. **Administrator → Sterowniki → karta sterownika → Firmware ESPHome**: wpisz sieć Wi-Fi kurnika, wybierz czujnik

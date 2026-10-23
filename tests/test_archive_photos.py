@@ -78,7 +78,7 @@ def test_building_egg_summary_and_device_building(app, admin, farmer):
     c.post("/api/my/eggs", {"kind": "collect", "eggs": 7, "building_id": b["id"]})
     c.post("/api/my/eggs", {"kind": "collect", "eggs": 20, "building_id": b["id"], "date": (date.today() - timedelta(days=20)).isoformat()})
     x = c.get("/api/my/buildings").get_json()[0]
-    assert (x["eggs_7d"], x["eggs_30d"], x["laying_7d"]) == (7, 27, 10.0)
+    assert (x["eggs_7d"], x["eggs_30d"], x["laying_7d"]) == (7, 27, 70.0)   # 7 jaj z 10 kur w jednym dniu ze zbiorem
     d, _ = online_device(app, admin, farmer)
     assert c.patch(f"/api/my/devices/{d}", {"building_id": b["id"]}).status_code == 200
     assert c.get("/api/my/buildings").get_json()[0]["devices"][0]["id"] == d

@@ -145,8 +145,8 @@ async function page() {
   ok(p.$("[data-calendar] .cal") && p.$$("[data-calendar] .cd[data-v]").length >= 28 && /stały klient/.test(p.$("[data-calendar]").textContent),
     "Zamówienia: kalendarz miesiąca z dostawami stałych klientów");
   await p.nav("wiecej");
-  const MORE = ["Sprzedaż", "Klienci", "Oferta", "Stado", "Sterowniki", "Raporty", "Analityka", "Pasza i mieszalnia", "Wydatki", "Wyposażenie", "Baza wiedzy", "Ustawienia"];
-  ok(await p.wait(() => p.$$(".mtile").length === 12) && MORE.every((t) => p.btn(t)), "Więcej: 12 dużych kafelków (w tym Analityka, Pasza, Wydatki, Wyposażenie)");
+  const MORE = ["Sprzedaż", "Klienci", "Oferta", "Stado", "Sterowniki", "Raporty", "Analityka", "Archiwum", "Pasza i mieszalnia", "Wydatki", "Wyposażenie", "Baza wiedzy", "Ustawienia"];
+  ok(await p.wait(() => p.$$(".mtile").length === 13) && MORE.every((t) => p.btn(t)), "Więcej: 13 dużych kafelków (w tym Analityka, Archiwum, Pasza, Wydatki, Wyposażenie)");
   await p.nav("pasza");
   ok(await p.wait(() => p.$("form[data-f=mix]") && /Pszenica: 25 kg/.test(p.$("[data-mixneed]").textContent)), "mieszalnia: ile czego potrzeba na 50 kg");
   const mf = p.$("form[data-f=mix]"); p.setv(mf, "kg", "40"); mf.elements.kg.dispatchEvent(new p.w.Event("input", { bubbles: true }));
@@ -169,6 +169,8 @@ async function page() {
   await p.nav("analityka");
   ok(await p.wait(() => p.$(".chart svg") && /Przychody i wydatki/.test(p.text()) && /Formy płatności/.test(p.text()) && /Kto co robił/.test(p.text())),
     "Analityka: wykresy zbiorów i pieniędzy, kto co robił");
+  await p.nav("archiwum");
+  ok(await p.wait(() => p.$("form[data-f=archive] input[type=file]") && /Plik → Pobierz/.test(p.text())), "Archiwum: instrukcja i wgranie CSV z arkusza Google");
   // kartoteka klienta: wpłata i rozliczenie do zera
   await p.nav("klienci");
   ok(await p.wait(() => /Anna Nowak/.test(p.text()) && /Dług 42,00 zł/.test(p.$("[data-client]").textContent) && p.$("a[href^='tel:']")), "Klienci: dłużnicy na górze, z numerem do zadzwonienia");
@@ -187,6 +189,12 @@ async function page() {
   const nf = p.$("form[data-f=flock][data-id='']"); p.setv(nf, "name", "Młode"); p.setv(nf, "birds", "20"); p.submit(nf);
   ok(await p.wait(() => /Dodano stado/.test(p.toast()) && p.$$("[data-flock]").length === 2 && /Kury razem\s*68/.test(p.text())), "Stado: dodanie stada, suma kur 68");
   ok(/Nieśność/.test(p.text()) && /\d+ %/.test(p.$(".stats").textContent), "Stado: szacunkowa nieśność ze zbiorów");
+  const bf = p.$("form[data-f=building]:not([data-id])"); p.setv(bf, "name", "Kurnik duży"); p.submit(bf);
+  ok(await p.wait(() => /Dodano budynek/.test(p.toast()) && p.$("[data-building]") && p.$("[data-building] form[data-f=photo]")), "Stado: budynek z galerią zdjęć");
+  const ff = p.$("[data-flock] form[data-f=flock]"); p.setv(ff, "building_id", p.$("[data-building]").dataset.building); p.submit(ff);
+  ok(await p.wait(() => /Zapisano stado/.test(p.toast()) && /Kurnik duży/.test(p.$("[data-flock]").textContent)), "Stado: przypisanie stada do budynku");
+  p.w.location.hash = "#/sklep";
+  ok(await p.wait(() => p.$("details.shopmore") && /Kurnik duży/.test(p.$("details.shopmore").textContent)), "sklep: budynek gospodarstwa ze stadem");
   await p.nav("wiedza");
   ok(await p.wait(() => p.$$("[data-kb]").length === 3 && !/szkic/i.test(p.$("#kblist").textContent)), "Baza wiedzy: 3 opublikowane artykuły, bez szkiców");
   const kq = p.$("#kbq"); kq.value = "silnika"; kq.dispatchEvent(new p.w.Event("input", { bubbles: true }));

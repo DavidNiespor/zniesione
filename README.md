@@ -62,8 +62,10 @@ Panel rolnika (telefon jako pierwszy, dolne menu Start, Jaja, Sterowanie, Zamów
   Raporty: wpływy według sposobu płatności, długi, nadpłaty, wydatki i zysk.
 - **Analityka** z wykresami (30 dni, 3 miesiące, rok): zbiory dziennie, nieśność, przychody i wydatki w miesiącach, formy płatności,
   najwięksi klienci, kto co robił; pod wykresami tabele z liczbami.
-- **Stado i budynki**: kurniki z kilkoma stadami w każdym (liczba kur, rasa, notatki), zbiór jaj można przypisać do budynku;
-  jaja dziennie i nieśność ze zbiorów.
+- **Stado i budynki**: kurniki z kilkoma stadami w każdym (liczba kur, rasa, notatki), zbiór jaj i sterownik można przypisać
+  do budynku; jaja z 7 i 30 dni oraz nieśność w budynku. **Zdjęcia** gospodarstwa, budynków i stad (z telefonu, zmniejszane przed wysłaniem).
+- **Sklep** pokazuje okładkę gospodarstwa, zdjęcia oraz kurniki z kurami („Nasze kurniki i kury”).
+- **Archiwum** dawnego arkusza Google (CSV): podgląd tylko do odczytu, z wykresami miesięcznymi, sprzedażą wg ceny, wydatkami i tabelą dzień po dniu.
 - **Zamówienia** z **kalendarzem** miesiąca (zamówienia ze sklepu z terminem odbioru, dostawy stałych klientów, sprzedaż),
   **Oferta** (cena, opis, położenie), **Sterowniki** (zamawianie, etapy dostawy), **Baza wiedzy**.
 - **Kilku zarządzających jedną farmą**: właściciel dodaje osoby z osobnymi loginami; przy każdym wpisie widać, kto zbierał, sortował i sprzedał.
@@ -177,8 +179,8 @@ Scenariusze do przejścia ręcznie (najlepiej na telefonie lub w trybie telefonu
 9. Rolnik, Więcej, Sterowniki: T-Relay jest domyślny i oznaczony jako najtańszy; T-Relay z Tailscale zostaje odrzucony.
 
 ## Testy automatyczne
-    python -m pytest -q                                  # 110 testów API i logiki
-    cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 120 kroków przez interfejs (jsdom), każdy system
+    python -m pytest -q                                  # 113 testów API i logiki
+    cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 124 kroki przez interfejs (jsdom), każdy system
 `run.js` zakłada bazę w katalogu tymczasowym, uruchamia atrapę urządzenia (port 9123) i serwer Flaska (port 8765);
 porty i interpreter zmienisz zmiennymi `DEV_PORT`, `WEB_PORT`, `PYTHON`. `tests/e2e/run.sh` tylko wywołuje `run.js`.
 Test e2e nie zastępuje sprawdzenia w prawdziwej przeglądarce na telefonie.

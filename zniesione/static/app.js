@@ -25,7 +25,7 @@ const STAGES = ['Zamówione', 'Konfiguracja gotowa', 'Wysłane', 'Połączone'];
 const MAIN = [['start', '🏠', 'Start'], ['jaja', '🥚', 'Jaja'], ['sterowanie', '🎛️', 'Sterowanie'], ['zamowienia', '📋', 'Zamówienia']];
 const MORE = [['sprzedaz', '🧺', 'Sprzedaż', 'Zapisz sprzedaż i sposób płatności'], ['klienci', '👥', 'Klienci', 'Kartoteka: zakupy, wpłaty, długi i nadpłaty'], ['oferta', '🏷️', 'Oferta', 'Cena, opis i położenie gospodarstwa'],
   ['stado', '🐔', 'Stado i budynki', 'Kurniki, stada w nich i liczba kur'], ['sterowniki', '🔌', 'Sterowniki', 'Zamów sterownik, sprawdź dostawę'],
-  ['raporty', '📊', 'Raporty', 'Sprzedaż i jaja w liczbach'], ['analityka', '📈', 'Analityka', 'Wykresy: zbiory, nieśność, przychody, wydatki'], ['pasza', '🌾', 'Pasza i mieszalnia', 'Magazyn zboża, receptury, mieszanie'], ['wydatki', '🧾', 'Wydatki', 'Pasza, weterynarz, ściółka i inne koszty'], ['wyposazenie', '🧰', 'Wyposażenie', 'Poidła, karmidła, lampy i przeglądy'],
+  ['raporty', '📊', 'Raporty', 'Sprzedaż i jaja w liczbach'], ['analityka', '📈', 'Analityka', 'Wykresy: zbiory, nieśność, przychody, wydatki'], ['archiwum', '🗄️', 'Archiwum', 'Dawny arkusz Google: podgląd'], ['pasza', '🌾', 'Pasza i mieszalnia', 'Magazyn zboża, receptury, mieszanie'], ['wydatki', '🧾', 'Wydatki', 'Pasza, weterynarz, ściółka i inne koszty'], ['wyposazenie', '🧰', 'Wyposażenie', 'Poidła, karmidła, lampy i przeglądy'],
   ['wiedza', '📚', 'Baza wiedzy', 'Porady i instrukcje krok po kroku'],
   ['ustawienia', '⚙️', 'Ustawienia', 'Zespół, hasło, kopia danych, wygląd']];
 const THEMES = {auto: 'automatyczny', light: 'jasny', dark: 'czarny'};
@@ -91,7 +91,7 @@ const VIEWS = {
   start: {fn: vStart, role: 'farmer', live: true}, jaja: {fn: vEggs, role: 'farmer'}, sterowanie: {fn: vControl, role: 'farmer', live: true},
   zamowienia: {fn: vOrders, role: 'farmer'}, wiecej: {fn: vMore, role: 'farmer'}, klienci: {fn: vClients, role: 'farmer'}, sprzedaz: {fn: vSale, role: 'farmer'},
   oferta: {fn: vOffer, role: 'farmer'}, stado: {fn: vFlock, role: 'farmer'}, sterowniki: {fn: vDevices, role: 'farmer'},
-  raporty: {fn: vReports, role: 'farmer'}, analityka: {fn: vAnalytics, role: 'farmer'}, ustawienia: {fn: vSettings, role: 'farmer'}, wiedza: {fn: vKb, role: 'farmer'}, wydatki: {fn: vExpenses, role: 'farmer'}, pasza: {fn: vFeed, role: 'farmer'}, 'admin-import': {fn: vAdminImport, role: 'admin'}, wyposazenie: {fn: vEquipment, role: 'farmer'},
+  raporty: {fn: vReports, role: 'farmer'}, analityka: {fn: vAnalytics, role: 'farmer'}, archiwum: {fn: vArchive, role: 'farmer'}, ustawienia: {fn: vSettings, role: 'farmer'}, wiedza: {fn: vKb, role: 'farmer'}, wydatki: {fn: vExpenses, role: 'farmer'}, pasza: {fn: vFeed, role: 'farmer'}, 'admin-import': {fn: vAdminImport, role: 'admin'}, wyposazenie: {fn: vEquipment, role: 'farmer'},
   admin: {fn: () => vAdmin('dev'), role: 'admin'}, 'admin-cfg': {fn: () => vAdmin('cfg'), role: 'admin'}, 'admin-tools': {fn: () => vAdmin('tools'), role: 'admin'},
   'admin-kb': {fn: vAdminKb, role: 'admin'},
 };
@@ -126,10 +126,21 @@ const empty = (icon, title, text, btn) => `<div class="card empty"><div class="i
 // ---------- sklep i konto ----------
 const fld = (l, n, t = 'text', x = '') => `<label for="f-${n}">${l}</label><input id="f-${n}" name="${n}" type="${t}" ${x}>`;
 const sel = (l, n, o, cur) => `<label for="f-${n}">${l}</label><select id="f-${n}" name="${n}">${o.map(([v, t]) => `<option value="${esc(v)}"${v == cur ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+const thumbs = ps => ps.length ? `<div class="thumbs">${ps.map(p => `<a href="${p.url}" target="_blank" rel="noopener"><img src="${p.url}" alt="${esc(p.caption || 'Zdjęcie')}" loading="lazy"></a>`).join('')}</div>` : '';
+const shopFlock = x => `<li><b>🐔 ${esc(x.name)}</b> <span class="mu">${x.birds} kur${x.breed ? ' · ' + esc(x.breed) : ''}</span>${thumbs(x.photos)}</li>`;
+function farmMore(f) {
+  const bs = f.buildings || [], loose = f.flocks || [];
+  if (!bs.length && !loose.length) return '';
+  return `<details class="shopmore"><summary>🏠 Nasze kurniki i kury</summary>${bs.map(b => `<div class="shopb"><b>${esc(b.name)}</b>${b.notes ? `<p class="mu">${esc(b.notes)}</p>` : ''}${thumbs(b.photos)}
+    <ul class="plain">${b.flocks.map(shopFlock).join('') || '<li class="mu">Brak opisanych stad.</li>'}</ul></div>`).join('')}
+    ${loose.length ? `<div class="shopb">${bs.length ? '<b>Pozostałe stada</b>' : ''}<ul class="plain">${loose.map(shopFlock).join('')}</ul></div>` : ''}</details>`;
+}
 function farmCards(fs) {
-  return fs.map(f => `<div class="card" data-farm="${f.id}"><h2>${esc(f.name)}</h2><p class="mu">${esc(f.zip)} ${esc(f.city)}${f.breed ? ' · ' + esc(f.breed) : ''}</p>
+  return fs.map(f => { const all = [...(f.photos || []), ...(f.buildings || []).flatMap(b => b.photos)], cover = all[0];
+    return `<div class="card farm" data-farm="${f.id}">${cover ? `<img class="cover" src="${cover.url}" alt="${esc(cover.caption || f.name)}" loading="lazy">` : ''}<h2>${esc(f.name)}</h2><p class="mu">${esc(f.zip)} ${esc(f.city)}${f.breed ? ' · ' + esc(f.breed) : ''}</p>
     ${f.descr ? `<p>${esc(f.descr)}</p>` : ''}<p class="price">${zl(f.price10)} <span class="mu">za 10 szt.</span></p><p class="mu">Dostępne: ${f.stock} opak.</p>
-    <button class="pri" data-act="order" data-id="${f.id}" data-name="${esc(f.name)}" ${f.stock < 1 ? 'disabled' : ''}>${f.stock < 1 ? 'Brak jaj' : 'Zamów'}</button></div>`).join('')
+    ${thumbs((f.photos || []).slice(1))}${farmMore(f)}
+    <div class="actions"><button class="pri" data-act="order" data-id="${f.id}" data-name="${esc(f.name)}" ${f.stock < 1 ? 'disabled' : ''}>${f.stock < 1 ? 'Brak jaj' : 'Zamów'}</button></div></div>` }).join('')
     || '<p class="mu">Brak gospodarstw dla tego wyszukiwania. Spróbuj samego początku kodu, np. 45.</p>';
 }
 async function vShop() {
@@ -567,7 +578,7 @@ function lineChart(cid, pts, key, unit, cls, label, fmt) {
   const W = 320, H = 140, L = 34, R = 12, T = 10, B = 20, vals = v.map(p => p[key]);
   let hi = Math.max(...vals); hi = hi <= 0 ? 1 : hi * 1.12; const lo = 0;
   const x = i => L + i / (v.length - 1) * (W - L - R), y = val => T + (hi - val) / (hi - lo) * (H - T - B);
-  const xy = v.map((p, i) => [x(i), y(p[key])]), lab = p => dmy(p.date);
+  const xy = v.map((p, i) => [x(i), y(p[key])]), lab = fmt || (p => dmy(p.date));
   CHART[cid] = {v, xy, key, unit, W, lab, fmt};
   const grid = [0, hi / 2, hi].map(g => `<line class="gl" x1="${L}" x2="${W - R}" y1="${y(g)}" y2="${y(g)}"/><text x="${L - 4}" y="${y(g) + 3}" text-anchor="end">${nf(g, 0)}</text>`).join('');
   const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
@@ -578,11 +589,47 @@ function lineChart(cid, pts, key, unit, cls, label, fmt) {
     <line class="cross" data-cross y1="${T}" y2="${H - B}" x1="0" x2="0" visibility="hidden"/><circle class="dot ${cls}" data-hdot r="4" cx="0" cy="0" visibility="hidden"/></svg>
     <div class="tip" hidden></div></div></figure>`;
 }
+const mon = m => new Date(m + '-15T12:00:00').toLocaleDateString('pl-PL', {month: 'short', year: '2-digit'});
+let arMonth = '';
+const ARCH_HELP = `<p class="mu">W arkuszu Google: <b>Plik → Pobierz → Wartości rozdzielane przecinkami (.csv)</b>. Portal rozpozna kolumny po nagłówkach
+  (Ilość Kur, Ilość Kwok, Ilość Jajek, Straty, MAGAZYN, DOM, kolumny z ceną za sztukę, Suma, Typ Wydatku, Wydatki).
+  Archiwum to tylko podgląd: nie zmienia stanów jaj, kartoteki ani wydatków w portalu. Ponowne wgranie zastępuje poprzednie.</p>`;
+const archForm = () => `<form data-f="archive" class="inl"><label for="ar-f" class="sr-only">Plik CSV z arkusza</label><input id="ar-f" name="file" type="file" accept=".csv,text/csv" required>
+  <button class="pri sm">Wgraj archiwum</button></form>`;
+async function vArchive() {
+  const a = await load('/api/my/archive');
+  if (a.empty) return `<h1>Archiwum</h1><section class="card"><h2>🗄️ Dawny arkusz z Google</h2>${ARCH_HELP}${archForm()}</section>`;
+  const t = a.totals, months = a.monthly.map(m => m.month), cur = months.includes(arMonth) ? arMonth : months[months.length - 1];
+  const price = p => +p ? `po ${nf(+p, 2)} zł/szt.` : 'za darmo (rozdane)';
+  const rows = a.days_list.filter(d => d.day.startsWith(cur));
+  return `<h1>Archiwum</h1><p class="lead">Dawny arkusz „${esc(a.name)}” · ${dmy(a.first)} ${a.first.slice(0, 4)} – ${dmy(a.last)} ${a.last.slice(0, 4)} · tylko podgląd</p>
+    <section class="card"><div class="stats">${stat('Zebrane', nf(t.eggs, 0) + ' szt.', `${a.days} dni z wpisami`)}${stat('Sprzedane', nf(t.sold, 0) + ' szt.')}
+      ${stat('Rozdane za darmo', nf(t.given, 0) + ' szt.')}${stat('Zjedzone w domu', nf(t.home, 0) + ' szt.')}${stat('Straty', nf(t.losses, 0) + ' szt.')}
+      ${stat('Przychody', zl(t.revenue))}${stat('Wydatki', zl(t.expenses))}${stat('Wynik', zl(t.profit))}</div>
+      <p class="mu">Sprzedaż wg ceny: ${Object.entries(a.by_price).map(([p, n]) => `${nf(n, 0)} szt. ${price(p)}`).join(' · ')}</p></section>
+    <section class="card"><h2>🥚 Zbiory w miesiącach</h2><div class="charts">${lineChart('ar:e', a.monthly.map(m => ({...m, date: m.month})), 'eggs', ' szt.', 't', 'Zebrane jaja w miesiącu (szt.)', p => mon(p.month))}
+      ${lineChart('ar:l', a.monthly.map(m => ({...m, date: m.month})), 'laying', ' %', 'h', 'Nieśność (% kur bez kwok, dni ze zbiorem)', p => mon(p.month))}</div></section>
+    <section class="card"><h2>💰 Pieniądze</h2><div class="charts">${monthBars(a.monthly.slice(-12))}</div>
+      <div class="tw"><table><thead><tr><th>Miesiąc</th><th>Zebrane</th><th>Nieśność</th><th>Kur</th><th>Sprzedane</th><th>Dom</th><th>Przychody</th><th>Wydatki</th></tr></thead>
+      <tbody>${a.monthly.slice().reverse().map(m => `<tr><td>${mon(m.month)}</td><td>${m.eggs}</td><td>${m.laying != null ? nf(m.laying, 0) + ' %' : '–'}</td><td>${m.hens}</td>
+        <td>${m.sold}</td><td>${m.home}</td><td>${zl(m.revenue)}</td><td>${zl(m.expenses)}</td></tr>`).join('')}</tbody></table></div></section>
+    ${a.expenses.length ? `<section class="card"><h2>🧾 Wydatki z arkusza</h2><ul class="list log">${a.expenses.slice().reverse().map(e => `<li><time datetime="${e.day}">${dmy(e.day)} ${e.day.slice(2, 4)}</time>
+      <div class="tb"><b>${esc(e.type || 'Wydatek')}</b></div><b>${zl(e.amount)}</b></li>`).join('')}</ul></section>` : ''}
+    <section class="card" data-ardays><h2>📅 Dzień po dniu</h2><label for="ar-m">Miesiąc</label><select id="ar-m" class="armonth">${months.slice().reverse().map(m =>
+      `<option value="${m}"${m === cur ? ' selected' : ''}>${new Date(m + '-15T12:00:00').toLocaleDateString('pl-PL', {month: 'long', year: 'numeric'})}</option>`).join('')}</select>
+      <div class="tw"><table><thead><tr><th>Dzień</th><th>Kur</th><th>Jaja</th><th>Straty</th><th>Dom</th><th>Sprzedaż</th><th>Kwota</th><th>Wydatek</th></tr></thead>
+      <tbody>${rows.map(d => `<tr><td>${dmy(d.day)}</td><td>${d.hens}${d.broody ? ` <span class="mu">(${d.broody} kw.)</span>` : ''}</td><td>${d.logged ? d.eggs : '–'}</td>
+        <td>${d.losses || ''}</td><td>${d.home || ''}</td><td>${d.sales.map(([p, n]) => `${n} ${+p ? '× ' + nf(+p, 2) + ' zł' : 'gratis'}`).join(', ')}</td>
+        <td>${d.revenue ? zl(d.revenue) + (d.paid_out ? ' ✓' : '') : ''}</td><td>${d.expense ? zl(d.expense) + ' ' + esc(d.expense_type) : ''}</td></tr>`).join('')}</tbody></table></div>
+      <p class="mu">✓ = oznaczone w arkuszu jako wypłacone.</p></section>
+    <section class="card"><details><summary>Wgraj nowszą wersję arkusza lub usuń archiwum</summary>${ARCH_HELP}${archForm()}
+      <div class="actions"><button class="ghost danger" data-act="archdel">Usuń archiwum</button></div></details></section>`;
+}
 function monthBars(ms) {
   const wide = (window.innerWidth || 0) >= 700, W = wide ? 640 : 320, H = wide ? 220 : 160, L = 40, R = 8, T = 10, B = 22, hi = Math.max(1, ...ms.map(m => Math.max(m.revenue, m.expenses))) * 1.1;
   const slot = (W - L - R) / ms.length, bw = Math.max(4, Math.min(wide ? 28 : 16, slot / 2 - 3)), y = v => T + (hi - v) / hi * (H - T - B);
   const bar = (cx, v, cls, t) => v > 0 ? `<path class="bar ${cls}" d="M${cx},${y(0)} V${y(v) + 3} q0,-3 3,-3 h${bw - 6} q3,0 3,3 V${y(0)} Z"><title>${t}</title></path>` : '';
-  const mname = m => new Date(m + '-15').toLocaleDateString('pl-PL', {month: 'short'});
+  const mname = m => new Date(m + '-15T12:00:00').toLocaleDateString('pl-PL', {month: 'short'}) + (ms[0].month.slice(0, 4) !== ms[ms.length - 1].month.slice(0, 4) ? ' ' + m.slice(2, 4) : '');
   return `<figure><figcaption>Przychody i wydatki w miesiącach (zł)</figcaption>
     <div class="legend"><span><i class="sw-r"></i>Przychody ze sprzedaży</span><span><i class="sw-e"></i>Wydatki</span></div>
     <div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Przychody i wydatki w miesiącach, szczegóły w tabeli poniżej">
@@ -619,7 +666,8 @@ function vMore() {
   return `<h1>Więcej</h1><div class="mtiles">${MORE.map(([k, i, t, s]) => `<button class="mtile" data-act="go" data-v="${k}"><span class="i" aria-hidden="true">${i}</span><b>${t}</b><small>${s}</small></button>`).join('')}</div>`;
 }
 async function vOffer() {
-  const f = await load('/api/my/farm'), v = x => `value="${esc(x ?? '')}"`;
+  const [f, ps] = await Promise.all([load('/api/my/farm'), load('/api/my/photos')]), v = x => `value="${esc(x ?? '')}"`;
+  PHOTOS = ps;
   return `<h1>Oferta</h1><form data-f="offer"><section class="card"><h2>Gospodarstwo w sklepie</h2>${fld('Nazwa', 'name', 'text', v(f.name) + ' required')}
     <div class="row"><div>${fld('Miejscowość', 'city', 'text', v(f.city))}</div><div>${fld('Kod pocztowy', 'zip', 'text', v(f.zip))}</div></div>
     ${fld('Rodzaj chowu', 'breed', 'text', v(f.breed) + ' placeholder="np. wolny wybieg"')}${fld('Opis dla klientów', 'descr', 'text', v(f.descr))}
@@ -629,9 +677,31 @@ async function vOffer() {
     <div class="row"><div>${fld('Szerokość geograficzna', 'lat', 'number', `step="any" min="-90" max="90" ${v(f.lat)} placeholder="np. 50.67" inputmode="decimal"`)}</div>
     <div>${fld('Długość geograficzna', 'lon', 'number', `step="any" min="-180" max="180" ${v(f.lon)} placeholder="np. 17.93" inputmode="decimal"`)}</div></div>
     <div class="actions"><button type="button" data-act="geo">📍 Użyj mojej lokalizacji</button></div></section>
-    <div class="actions"><button class="pri">Zapisz ofertę</button></div></form>`;
+    <div class="actions"><button class="pri">Zapisz ofertę</button></div></form>
+    <section class="card"><h2>📷 Zdjęcia gospodarstwa</h2><p class="mu">Pierwsze zdjęcie jest okładką w sklepie. Zdjęcia kurników i stad dodasz w Więcej → Stado i budynki.</p>
+    ${photoBox('farm', null, 'Zdjęcie gospodarstwa')}</section>`;
 }
-let BUILDINGS = [];
+let BUILDINGS = [], PHOTOS = [];
+function photoBox(scope, id, label) {
+  const ps = PHOTOS.filter(p => scope === 'farm' ? !p.building_id && !p.flock_id : scope === 'building' ? p.building_id === id && !p.flock_id : p.flock_id === id);
+  const key = scope + (id || '');
+  return `<div class="pbox" data-pbox="${key}">${ps.length ? `<div class="thumbs edit">${ps.map(p => `<figure><a href="${p.url}" target="_blank" rel="noopener"><img src="${p.url}" alt="${esc(p.caption || 'Zdjęcie')}" loading="lazy"></a>
+    <figcaption>${esc(p.caption)}</figcaption><button class="sm ghost danger" data-act="photodel" data-id="${p.id}" aria-label="Usuń zdjęcie">Usuń</button></figure>`).join('')}</div>` : ''}
+    <form data-f="photo" class="inl">${scope === 'building' ? `<input type="hidden" name="building_id" value="${id}">` : scope === 'flock' ? `<input type="hidden" name="flock_id" value="${id}">` : ''}
+    <label for="ph-${key}" class="sr-only">${label}</label><input id="ph-${key}" name="file" type="file" accept="image/*" required>
+    <label for="pc-${key}" class="sr-only">Podpis</label><input id="pc-${key}" name="caption" maxlength="120" placeholder="Podpis (opcjonalnie)">
+    <button class="sm">📷 Dodaj zdjęcie</button></form></div>`;
+}
+async function shrink(file) {  // zdjęcie z telefonu: najdłuższy bok 1600 px, JPEG; bez wsparcia przeglądarki wysyłamy oryginał
+  try {
+    if (!window.createImageBitmap || !file.type.startsWith('image/')) return file;
+    const bmp = await createImageBitmap(file), k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const cv = Object.assign(document.createElement('canvas'), {width: Math.round(bmp.width * k), height: Math.round(bmp.height * k)});
+    cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .85));
+    return blob && blob.size < file.size ? new File([blob], 'zdjecie.jpg', {type: 'image/jpeg'}) : file;
+  } catch (e) { return file }
+}
 function flockForm(x) {
   const p = x ? 'fl' + x.id : 'flnew', v = k => `value="${esc(x ? x[k] : '')}"`;
   return `<form data-f="flock" data-id="${x ? x.id : ''}"><div class="row"><div><label for="${p}n">Nazwa stada</label><input id="${p}n" name="name" ${v('name')} required maxlength="60" placeholder="np. Stado główne"></div>
@@ -644,25 +714,29 @@ function flockForm(x) {
     <div class="actions"><button class="pri">${x ? 'Zapisz zmiany' : 'Dodaj stado'}</button>${x ? `<button type="button" class="ghost danger" data-act="delflock" data-id="${x.id}">Usuń stado</button>` : ''}</div></form>`;
 }
 async function vFlock() {
-  const [fl, eg, bs] = await Promise.all([load('/api/my/flocks'), load('/api/my/eggs?days=7'), load('/api/my/buildings')]);
-  BUILDINGS = bs;
+  const [fl, eg, bs, ps] = await Promise.all([load('/api/my/flocks'), load('/api/my/eggs?days=7'), load('/api/my/buildings'), load('/api/my/photos')]);
+  BUILDINGS = bs; PHOTOS = ps;
   const birds = fl.reduce((s, x) => s + x.birds, 0), perDay = eg.collected / 7, bname = Object.fromEntries(bs.map(b => [b.id, b.name]));
   const sum = `<section class="card"><div class="stats">${stat('Kury razem', birds)}${stat('Jaja dziennie', nf(perDay, 0), 'średnio z 7 dni')}
     ${stat('Nieśność', birds ? nf(perDay / birds * 100, 0) + ' %' : '–', 'szacunkowo, ze zbiorów')}${bs.length ? stat('Budynki', bs.length) : ''}</div>
     <p class="mu">Nieśność liczymy z zapisanych zbiorów (Jaja → Zbiór), więc zapisuj je codziennie.</p></section>`;
   const bcard = b => `<li data-building="${b.id}"><span class="ti" aria-hidden="true">🏠</span><div class="tb"><b>${esc(b.name)}</b>
-    <span class="mu">${b.flocks.length ? b.flocks.map(x => `${esc(x.name)} (${x.birds})`).join(', ') + ` · razem ${b.birds} kur` : 'brak stad: przypisz je w danych stada'}${b.notes ? ' · ' + esc(b.notes) : ''}</span></div>
+    <span class="mu">${b.flocks.length ? b.flocks.map(x => `${esc(x.name)} (${x.birds})`).join(', ') + ` · razem ${b.birds} kur` : 'brak stad: przypisz je w danych stada'}${b.notes ? ' · ' + esc(b.notes) : ''}</span>
+    <span class="mu">🥚 7 dni: <b>${b.eggs_7d} szt.</b>${b.laying_7d != null ? ` (nieśność ${nf(b.laying_7d, 0)} %)` : ''} · 30 dni: <b>${b.eggs_30d} szt.</b>${b.devices.length ? ' · 🔌 ' + b.devices.map(d => esc(d.addr || d.code)).join(', ') : ''}</span></div>
+    <details class="wide"><summary>📷 Zdjęcia (${PHOTOS.filter(p => p.building_id === b.id && !p.flock_id).length})</summary>${photoBox('building', b.id, 'Zdjęcie budynku ' + b.name)}</details>
     <details><summary>Zmień</summary><form data-f="building" data-id="${b.id}"><div class="row"><div><label for="bn${b.id}">Nazwa</label><input id="bn${b.id}" name="name" value="${esc(b.name)}" required maxlength="60"></div>
     <div><label for="bo${b.id}">Notatki</label><input id="bo${b.id}" name="notes" value="${esc(b.notes)}" maxlength="300"></div></div>
     <div class="actions"><button class="pri sm">Zapisz</button><button type="button" class="sm ghost danger" data-act="bdel" data-id="${b.id}">Usuń budynek</button></div></form></details></li>`;
   return `<h1>Stado i budynki</h1>${fl.length ? sum : ''}
-    <section class="card"><h2>🏠 Budynki</h2><p class="mu">Kurniki i wybiegi. W jednym budynku może być kilka stad; zbiór jaj możesz zapisywać osobno dla budynku.</p>
+    <section class="card"><h2>🏠 Budynki</h2><p class="mu">Kurniki i wybiegi. W jednym budynku może być kilka stad; zbiór jaj możesz zapisywać osobno dla budynku.
+    Budynki ze stadami i zdjęciami klienci widzą w sklepie.</p>
     <ul class="list">${bs.map(bcard).join('') || '<li class="mu">Nie dodano budynków. Przy jednym kurniku nie są potrzebne.</li>'}</ul>
     <details><summary>➕ Dodaj budynek</summary><form data-f="building"><div class="row"><div><label for="bn-new">Nazwa</label><input id="bn-new" name="name" required maxlength="60" placeholder="np. Kurnik duży"></div>
     <div><label for="bo-new">Notatki</label><input id="bo-new" name="notes" maxlength="300"></div></div><div class="actions"><button class="pri">Dodaj budynek</button></div></form></details></section>
     ${fl.map(x => `<section class="card" data-flock="${x.id}"><div class="dev-h"><div><h2>🐔 ${esc(x.name)}</h2>
     <p class="mu">${x.birds} kur${x.breed ? ' · ' + esc(x.breed) : ''}${x.since ? ' · od ' + new Date(x.since).toLocaleDateString('pl-PL') : ''}${bname[x.building_id] ? ' · 🏠 ' + esc(bname[x.building_id]) : ''}</p></div></div>
-    ${x.notes ? `<p>${esc(x.notes)}</p>` : ''}<details><summary>Zmień dane stada</summary>${flockForm(x)}</details></section>`).join('')}
+    ${x.notes ? `<p>${esc(x.notes)}</p>` : ''}<details><summary>📷 Zdjęcia stada (${PHOTOS.filter(p => p.flock_id === x.id).length})</summary>${photoBox('flock', x.id, 'Zdjęcie stada ' + x.name)}</details>
+    <details><summary>Zmień dane stada</summary>${flockForm(x)}</details></section>`).join('')}
     <section class="card"><h2>${fl.length ? 'Dodaj kolejne stado' : 'Dodaj pierwsze stado'}</h2>${fl.length ? '' : '<p class="mu">Zapisz, ile masz kur. Portal policzy nieśność ze zbiorów jaj.</p>'}${flockForm(null)}</section>`;
 }
 
@@ -877,7 +951,7 @@ const steps = s => `<ol class="steps" aria-label="Etap: ${STAGES[s]}">${STAGES.m
 const yamlBlock = d => `<details data-yamlbox="${d.id}"><summary data-act="yaml" data-id="${d.id}">Konfiguracja ESPHome</summary><p class="mu">Dla instalatora: wgraj ją do sterownika w ESPHome.</p>
   <pre data-yaml="${d.id}">Ładuję…</pre><button data-act="copy" data-id="${d.id}">📋 Kopiuj</button></details>`;
 async function vDevices() {
-  const [devs, ct] = await Promise.all([load('/api/my/devices'), load('/api/catalog')]);
+  const [devs, ct, bs] = await Promise.all([load('/api/my/devices'), load('/api/catalog'), load('/api/my/buildings')]);
   const def = ct.find(m => m.default) || ct[0];
   return `<h1>Sterowniki</h1><section class="card"><h2>Zamów sterownik</h2><p class="mu">Do portalu można podłączyć tylko sterowniki kupione u nas. Przychodzą przygotowane do pracy.</p>
     <form data-f="devorder"><label for="f-model">Model</label><select id="f-model" name="model">${ct.map(m => `<option value="${m.id}"${m === def ? ' selected' : ''}>${esc(m.name)}${m.cheapest ? ' · najtańszy' : ''}</option>`).join('')}</select>
@@ -887,6 +961,8 @@ async function vDevices() {
     <div class="actions"><button class="pri">Zamów sterownik</button></div></form></section>
     ${devs.map(d => `<section class="card" data-dev="${d.id}"><div class="dev-h"><div><h2>${esc(title(d))}</h2><p class="mu">${esc(d.model_name)} · nr ${esc(d.code)}</p></div>${statusBadge(d)}</div>
     ${steps(d.stage)}${d.stage >= 3 ? '<button data-act="go" data-v="sterowanie">Przejdź do sterowania</button>' : '<p class="mu">Sterowanie włączy się, gdy sterownik połączy się z portalem.</p>'}
+    ${bs.length ? `<label for="db${d.id}">Budynek</label><select id="db${d.id}" class="devbld" data-id="${d.id}"><option value="">— bez budynku —</option>${bs.map(b =>
+      `<option value="${b.id}"${d.building_id === b.id ? ' selected' : ''}>${esc(b.name)}</option>`).join('')}</select>` : ''}
     ${d.stage >= 1 ? yamlBlock(d) : ''}</section>`).join('')}`;
 }
 
@@ -1241,6 +1317,14 @@ const ACT = {
   async calmonth(b) { const d = new Date(calMonth + '-15T12:00:00'); d.setMonth(d.getMonth() + +b.dataset.v); calMonth = ymd(d).slice(0, 7); await calReload() },
   calday(b) { calDay = b.dataset.v; $('[data-calendar]').innerHTML = '<h2>📅 Kalendarz</h2>' + calendar() },
   async andays(b) { anDays = +b.dataset.v; await refresh() },
+  async photodel(b) {
+    if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = 'Na pewno?'; return }
+    if (done(await api('DELETE', `/api/my/photos/${b.dataset.id}`), 'Zdjęcie usunięte')) await refresh();
+  },
+  async archdel(b) {
+    if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = 'Na pewno usunąć archiwum?'; return }
+    if (done(await api('DELETE', '/api/my/archive'), 'Archiwum usunięte')) await refresh();
+  },
   async memberdel(b) {
     if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = 'Na pewno?'; return }
     if (done(await api('DELETE', `/api/my/team/${b.dataset.id}`), 'Dostęp usunięty')) await refresh();
@@ -1366,6 +1450,20 @@ const FORMS = {
   async member(f, v) { if (done(await api('POST', '/api/my/team', v), `Dodano: ${v.name}. Przekaż login i hasło.`)) await refresh() },
   async myname(f, v) { if (done(await api('PATCH', `/api/my/team/${me.id}`, {name: v.name}), 'Zapisano imię')) await refresh() },
   async password(f, v) { if (done(await api('PUT', '/api/my/password', v), 'Hasło zmienione')) f.reset() },
+  async photo(f) {
+    const fd = new FormData(f), file = f.elements.file.files[0];
+    if (file) fd.set('file', await shrink(file));
+    const r = await fetch('/api/my/photos', {method: 'POST', headers: {'X-Requested-With': 'zniesione'}, body: fd});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) return toast(d.error || 'Nie udało się dodać zdjęcia', true);
+    toast('Dodano zdjęcie. Widać je w sklepie.'); await refresh();
+  },
+  async archive(f) {
+    const r = await fetch('/api/my/archive', {method: 'POST', headers: {'X-Requested-With': 'zniesione'}, body: new FormData(f)});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) return toast(d.error || 'Nie udało się wgrać archiwum', true);
+    arMonth = ''; toast(`Wgrano archiwum: ${d.days} dni (${d.first} – ${d.last})`); await refresh();
+  },
   async restore(f) {
     const r = await fetch('/api/admin/restore', {method: 'POST', headers: {'X-Requested-With': 'zniesione'}, body: new FormData(f)});
     const d = await r.json().catch(() => ({}));
@@ -1542,6 +1640,8 @@ document.addEventListener('change', async e => {
   if (f && f.dataset.f === 'fwset') fwPins(f);
   if (f && f.dataset.f === 'sale') saleSync(f, t.name === 'client_id');
   if (f && f.dataset.f === 'devorder' && t.name === 'model') $('[data-cheap]', f).hidden = !/najtańszy/.test(t.selectedOptions[0] ? t.selectedOptions[0].textContent : '');
+  if (t.classList.contains('armonth')) { arMonth = t.value; const y = scrollY; await refresh(); scrollTo(0, y); return }
+  if (t.classList.contains('devbld')) { done(await api('PATCH', `/api/my/devices/${t.dataset.id}`, {building_id: num(t.value)}), 'Zapisano budynek sterownika'); return }
   if (t.classList.contains('nm')) {
     const {id, k} = t.dataset;
     if (!t.value.trim()) { t.value = DEV[id].channels.find(x => x.key === k).name; return toast('Nazwa nie może być pusta.', true) }
