@@ -4,6 +4,7 @@ import json
 import math
 import os
 import re
+import urllib.error
 import urllib.request
 from datetime import datetime, time, timedelta, timezone
 
@@ -198,14 +199,57 @@ def write_wg_conf(db, path):
     return text
 
 
+def device_keys(db, dev):
+    """Stałe klucze sterownika (szyfrowanie API ESPHome, hasło OTA, WireGuard): tworzone raz, potem te same,
+    żeby kolejne wgrania przez sieć (OTA) pasowały do tego, co jest w sterowniku."""
+    if not dev["esp_api_key"] or not dev["esp_ota_password"] or (dev["tunnel"] == "wg" and not dev["wg_pub"]):
+        wp, wpub = (dev["wg_priv"], dev["wg_pub"]) if dev["wg_pub"] else wg_keypair()
+        db.execute("UPDATE devices SET esp_api_key=COALESCE(esp_api_key,?), esp_ota_password=COALESCE(esp_ota_password,?), "
+                   "wg_priv=?, wg_pub=? WHERE id=?", (base64.b64encode(os.urandom(32)).decode(), os.urandom(12).hex(), wp, wpub, dev["id"]))
+        db.commit()
+        dev = db.execute("SELECT * FROM devices WHERE id=?", (dev["id"],)).fetchone()
+    return dev
+
+
 def esphome_secrets(dev, db):
+    dev = device_keys(db, dev)
     _, pub = wg_server(db)
     out = (f"# secrets.yaml dla {dev['code']}: wgraj razem z konfiguracją ESPHome\n"
-           "wifi_ssid: \"\"        # nazwa sieci Wi-Fi w kurniku\nwifi_password: \"\"\n"
-           f"api_key: \"{base64.b64encode(os.urandom(32)).decode()}\"\nota_password: \"{os.urandom(12).hex()}\"\n")
+           f"wifi_ssid: {q(dev['wifi_ssid'] or '')}\nwifi_password: {q(dev['wifi_password'] or '')}\n"
+           f"api_key: \"{dev['esp_api_key']}\"\nota_password: \"{dev['esp_ota_password']}\"\nportal_key: \"{dev['api_key']}\"\n")
     if dev["tunnel"] == "wg":
         out += f"wg_privkey: \"{dev['wg_priv']}\"\nwg_server_pubkey: \"{pub}\"\n"
     return out
+
+
+SENSORS = ("", "sht3x", "dht22", "ds18b20")  # brak, SHT3x (I2C), DHT22, DS18B20 (1-Wire, tylko temperatura)
+
+
+def _sensor(dev):
+    kind, pins = dev["sensor"] or "", json.loads(dev["sensor_pins"] or "{}")
+    if kind == "sht3x":
+        return (f"i2c:\n  sda: GPIO{pins['sda']}\n  scl: GPIO{pins['scl']}\n\nsensor:\n  - platform: sht3xd\n    temperature:\n"
+                "      name: Temperatura\n      id: temp\n    humidity:\n      name: Wilgotnosc\n      id: hum\n    update_interval: 60s\n\n"), True, True
+    if kind == "dht22":
+        return (f"sensor:\n  - platform: dht\n    pin: GPIO{pins['pin']}\n    model: DHT22\n    temperature:\n      name: Temperatura\n"
+                "      id: temp\n    humidity:\n      name: Wilgotnosc\n      id: hum\n    update_interval: 60s\n\n"), True, True
+    if kind == "ds18b20":
+        return (f"one_wire:\n  - platform: gpio\n    pin: GPIO{pins['pin']}\n\nsensor:\n  - platform: dallas_temp\n    name: Temperatura\n"
+                "    id: temp\n    update_interval: 60s\n\n"), True, False
+    return ("# Czujnik temperatury i wilgotności (SHT3x, DHT22 lub DS18B20) wybiera administrator w portalu\n\n"), False, False
+
+
+def _report(dev, net, has_t, has_h):
+    """Co minutę odczyt (albo sam sygnał „żyję”) do portalu przez tunel: portal widzi sterownik jako połączony."""
+    if dev["tunnel"] != "wg":
+        return "# Odczyty do portalu: tylko przez WireGuard (tunel Tailscale wymaga adresu portalu w swojej sieci)\n"
+    val = lambda on, var, fmt: (f'      std::string {var} = isnan(id({"temp" if var == "t" else "hum"}).state) ? "null" : '
+                                f'str_sprintf("{fmt}", id({"temp" if var == "t" else "hum"}).state);\n') if on else f'      std::string {var} = "null";\n'
+    return ("http_request:\n  verify_ssl: false\n  timeout: 10s\n\ninterval:\n  - interval: 60s\n    then:\n      - http_request.post:\n"
+            f"          url: http://{net}.1:8000/api/device/readings\n          request_headers:\n            X-Api-Key: !secret portal_key\n"
+            "            Content-Type: application/json\n          body: !lambda |-\n"
+            + val(has_t, "t", "%.1f").replace("      ", "            ", 1) + val(has_h, "h", "%.0f").replace("      ", "            ", 1)
+            + '            return "{\\"t\\":" + t + ",\\"h\\":" + h + "}";\n')
 
 
 def alloc_ip(db):
@@ -248,21 +292,41 @@ def esphome_yaml(dev, chans, db):
            f"    - {net}.1/32\n  peer_persistent_keepalive: 25s\n")
     link = ("ethernet:\n  type: W5500\n  # clk_pin, mosi_pin, miso_pin, cs_pin, interrupt_pin, reset_pin: wg dokumentacji Waveshare\n\n"
             if m.get("eth") else "wifi:\n  ssid: !secret wifi_ssid\n  password: !secret wifi_password\n\n")
+    # nazwa przełącznika = klucz kanału: web_server ESPHome dopasowuje /switch/<nazwa>/turn_on po nazwie encji,
+    # a portal wysyła klucz (nazwę dla rolnika trzyma portal, komentarz obok)
     if "relays" in m:
-        sw = "switch:\n" + "".join(f"  - platform: gpio\n    id: {c['key']}\n    pin: GPIO{p}\n    name: {q(c['name'])}\n"
+        sw = "switch:\n" + "".join(f"  - platform: gpio\n    id: {c['key']}\n    pin: GPIO{p}\n    name: {c['key']}  # {c['name']}\n"
                                     + _failsafe(c, chans, dev) for c, p in zip(chans, m["relays"]))
     elif "sr" in m:
         s = m["sr"]
         sw = (f"sn74hc595:\n  - id: sr_hub\n    data_pin: {s['data']}\n    clock_pin: {s['clock']}\n"
               f"    latch_pin: {s['latch']}\n    sr_count: 1\n\nswitch:\n" +
-              "".join(f"  - platform: gpio\n    id: {c['key']}\n    name: {q(c['name'])}\n    pin:\n"
+              "".join(f"  - platform: gpio\n    id: {c['key']}\n    name: {c['key']}  # {c['name']}\n    pin:\n"
                       f"      sn74hc595: sr_hub\n      number: {i}\n" + _failsafe(c, chans, dev) for i, c in enumerate(chans)))
     else:
         sw = "# Przekaźniki i wejścia: piny wg dokumentacji Waveshare\n"
+    sensor, has_t, has_h = _sensor(dev)
     return (f"esphome:\n  name: {dev['code']}\n  friendly_name: Kurnik {dev['code']}\n\nesp32:\n  board: {m['board']}\n\n"
             f"{link}api:\n  encryption:\n    key: !secret api_key\n\nota:\n  - platform: esphome\n    password: !secret ota_password\n\n"
-            f"web_server:\n  port: 80\n\ntime:\n  - platform: sntp\n\n{tun}\n{sw}"
-            "\n# Czujnik temperatury i wilgotności (np. SHT31): podłącz do wolnych pinów, nie do pinów przekaźników\n")
+            f"web_server:\n  port: 80\n\ntime:\n  - platform: sntp\n\n{tun}\n{sw}\n{sensor}{_report(dev, net, has_t, has_h)}")
+
+
+def builder_call(cfg, method, path, body=None, raw=False):
+    """Zapytanie do kontenera budującego firmware ESPHome. Zwraca (kod HTTP, JSON albo bajty)."""
+    req = urllib.request.Request(cfg["BUILDER_URL"].rstrip("/") + path, method=method,
+                                 data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"X-Builder-Token": cfg["BUILDER_TOKEN"], "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = r.read()
+            return r.status, data if raw else json.loads(data)
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read())
+        except ValueError:
+            return e.code, {"error": str(e)}
+    except OSError as e:
+        return 503, {"error": f"Builder niedostępny: {e}"}
 
 
 def send_http(dev, ch, state):

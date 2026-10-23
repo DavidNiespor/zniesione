@@ -1,5 +1,5 @@
 # Pełny stack zniesione.pl: portal, serwer WireGuard dla sterowników w kurnikach, tunel Cloudflare, rekordy DNS
-# ustawiane automatycznie, serwer poczty z pocztą w przeglądarce, kopie zapasowe.
+# ustawiane automatycznie, serwer poczty z pocztą w przeglądarce, budowanie firmware sterowników, kopie zapasowe.
 #
 # Serwer:     cp .env.example .env  (uzupełnij)  &&  docker compose up -d --build
 # Portainer:  Stacks -> Add stack -> Repository -> to repozytorium, plik docker-compose.yml, zmienne z .env.example
@@ -47,6 +47,8 @@ services:
       SMTP_USER: ${MAIL_ADMIN:-admin}@${MAIL_DOMAIN:-zniesione.pl}
       SMTP_PASSWORD: ${MAIL_ADMIN_PASSWORD:-}
       MAIL_FROM: "zniesione.pl <${MAIL_ADMIN:-admin}@${MAIL_DOMAIN:-zniesione.pl}>"
+      BUILDER_URL: http://127.0.0.1:6100   # kontener esphome: firmware sterowników z panelu admina
+      BUILDER_TOKEN: ${BUILDER_TOKEN:-${SECRET_KEY}}
     volumes:
       - zniesione-data:/data
 
@@ -80,6 +82,21 @@ services:
             last=$$now
           fi
         done
+
+  esphome:
+    # budowanie firmware ESPHome i wgrywanie przez sieć (OTA przez WireGuard) z panelu admina; tylko wewnątrz stacka
+    build: ./deploy/esphome-builder
+    image: zniesione-esphome:latest
+    pull_policy: build
+    restart: unless-stopped
+    network_mode: service:siec
+    depends_on: [siec]
+    environment:
+      BUILDER_TOKEN: ${BUILDER_TOKEN:-${SECRET_KEY}}
+      PLATFORMIO_CORE_DIR: /cache/platformio   # kompilatory ESP32 pobierane raz (ok. 1 GB), potem z pamięci podręcznej
+    volumes:
+      - esphome-config:/config
+      - esphome-cache:/cache
 
   cloudflared:
     image: cloudflare/cloudflared:2026.10.0   # nowsze wersje: hub.docker.com/r/cloudflare/cloudflared/tags
@@ -227,3 +244,5 @@ volumes:
   poczta-konfig:           # konta, aliasy, klucze DKIM
   letsencrypt:             # certyfikat mail.<domena>
   webmail-db:
+  esphome-config:          # konfiguracje i zbudowane firmware sterowników
+  esphome-cache:

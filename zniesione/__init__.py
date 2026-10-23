@@ -1,4 +1,5 @@
 import hashlib
+import json
 import math
 import os
 import re
@@ -109,6 +110,8 @@ def create_app(test_config=None):
                       SMTP_HOST=os.environ.get("SMTP_HOST", ""), SMTP_PORT=os.environ.get("SMTP_PORT", "587"),
                       SMTP_USER=os.environ.get("SMTP_USER", ""), SMTP_PASSWORD=os.environ.get("SMTP_PASSWORD", ""),
                       MAIL_FROM=os.environ.get("MAIL_FROM", ""), MAIL=farmbook.send_mail,
+                      BUILDER_URL=os.environ.get("BUILDER_URL", ""), BUILDER_TOKEN=os.environ.get("BUILDER_TOKEN", ""),
+                      BUILDER_CALL=sv.builder_call,
                       SEND=sv.send_http, RUN_SCHEDULER=os.environ.get("RUN_SCHEDULER") == "1")
     app.config.update(test_config or {})
     if app.config["PROXY_COUNT"]:  # za odwrotnym proxy lub Cloudflare Tunnel: adres klienta z X-Forwarded-For
@@ -190,7 +193,10 @@ def create_app(test_config=None):
                     tunnel=d["tunnel"], ip=d["ip"], stage=d["stage"], online=bool(d["online"]), addr=d["addr"],
                     farm_id=d["farm_id"], channels=ch, reading=rs[0] if rs else None, readings=rs,
                     last_seen=d["last_seen"], door=d["door"], door_run_s=d["door_run_s"],
-                    **({"api_key": d["api_key"]} if admin else {}))
+                    **({"api_key": d["api_key"], "sensor": d["sensor"], "sensor_pins": json.loads(d["sensor_pins"] or "{}"),
+                        "wifi_ssid": d["wifi_ssid"], "wifi_set": bool(d["wifi_password"]), "fw_job": d["fw_job"],
+                        "chip": "ESP32-S3" if "s3" in cat.MODELS[d["model"]].get("board", "") else "ESP32",
+                        "firmware": not cat.MODELS[d["model"]].get("shelly") and not cat.MODELS[d["model"]].get("eth")} if admin else {}))
 
     def new_device(model, farm_id, tunnel, addr):
         code = "kurnik-" + secrets.token_hex(2)
@@ -764,8 +770,88 @@ def create_app(test_config=None):
             if b["stage"] not in (d["stage"], d["stage"] + 1) or b["stage"] > 3:
                 return err("Etap można tylko zwiększać o jeden (maks. 3)")
             q("UPDATE devices SET stage=? WHERE id=?", b["stage"], did)
+        if "sensor" in b:  # czujnik w firmware: rodzaj i piny (nie piny przekaźników)
+            kind, pins = b["sensor"], b.get("sensor_pins") or {}
+            need_pins = {"": (), "sht3x": ("sda", "scl"), "dht22": ("pin",), "ds18b20": ("pin",)}.get(kind) if isinstance(kind, str) else None
+            if need_pins is None:
+                return err("Czujnik: brak, sht3x, dht22 albo ds18b20")
+            m = cat.MODELS[d["model"]]
+            busy = set(m.get("relays", [])) | set((m.get("sr") or {}).values())
+            if not isinstance(pins, dict) or any(not integer(pins.get(k), 0, 48) or pins[k] in busy for k in need_pins) \
+                    or len({pins[k] for k in need_pins}) != len(need_pins):
+                return err(f"Podaj różne piny GPIO 0-48 dla: {', '.join(need_pins)} (bez pinów przekaźników: {sorted(busy)})")
+            q("UPDATE devices SET sensor=?, sensor_pins=? WHERE id=?", kind, json.dumps({k: pins[k] for k in need_pins}), did)
+        for k, n in (("wifi_ssid", 32), ("wifi_password", 63)):
+            if k in b:
+                if not isinstance(b[k], str) or len(b[k]) > n:
+                    return err(f"Pole {k} do {n} znaków")
+                q(f"UPDATE devices SET {k}=? WHERE id=?", b[k], did)
         commit()
         return jsonify(dev_json(q("SELECT * FROM devices WHERE id=?", did).fetchone(), True))
+
+    # ---------- firmware ESPHome: kompilacja i wgrywanie z panelu admina (kontener esphome w stacku) ----------
+    def fw_device(did):
+        d = q("SELECT * FROM devices WHERE id=?", did).fetchone()
+        if not d:
+            return None, err("Nie znaleziono", 404)
+        m = cat.MODELS[d["model"]]
+        if m.get("shelly") or m.get("eth"):
+            return None, err("Ten model nie jest budowany z portalu (Shelly: własny firmware; Waveshare: uzupełnij piny Ethernet)", 409)
+        if not app.config["BUILDER_URL"]:
+            return None, err("Budowanie firmware nie jest skonfigurowane (BUILDER_URL)", 503)
+        return d, None
+
+    @app.route("/api/admin/devices/<int:did>/firmware", methods=["GET", "POST"])
+    @need("admin")
+    def firmware(did):
+        d, e = fw_device(did)
+        if e:
+            return e
+        if request.method == "GET":
+            if not d["fw_job"]:
+                return jsonify(status="none")
+            code, data = app.config["BUILDER_CALL"](app.config, "GET", f"/jobs/{d['fw_job']}")
+            return jsonify(data) if code == 200 else err("Builder nie zna tego zadania (np. po restarcie). Skompiluj ponownie.", 404)
+        action = body().get("action")
+        if action not in ("compile", "upload"):
+            return err("Akcja: compile (kompilacja do wgrania przez USB) albo upload (kompilacja i wgranie przez sieć)")
+        if not d["wifi_ssid"] or not d["wifi_password"]:
+            return err("Najpierw wpisz sieć Wi-Fi kurnika (nazwa i hasło)", 409)
+        if action == "upload" and (d["tunnel"] != "wg" or not d["online"]):
+            return err("Wgranie przez sieć działa dla sterownika połączonego przez WireGuard. Pierwszy raz wgraj przez USB.", 409)
+        d = sv.device_keys(dbm.get(), d)
+        ch = [dict(c) for c in q("SELECT * FROM channels WHERE device_id=? ORDER BY id", did)]
+        code, data = app.config["BUILDER_CALL"](app.config, "POST", "/jobs", {
+            "name": d["code"], "action": action, "ip": d["ip"], "yaml": sv.esphome_yaml(d, ch, dbm.get()),
+            "secrets": sv.esphome_secrets(d, dbm.get())})
+        if code != 201:
+            return err(f"Builder odrzucił zadanie: {data.get('error') if isinstance(data, dict) else data}", 502)
+        q("UPDATE devices SET fw_job=? WHERE id=?", data["id"], did)
+        commit()
+        return jsonify(id=data["id"], status="queued"), 201
+
+    @app.get("/api/admin/devices/<int:did>/firmware.bin")
+    @need("admin")
+    def firmware_bin(did):
+        d, e = fw_device(did)
+        if e:
+            return e
+        code, data = app.config["BUILDER_CALL"](app.config, "GET", f"/jobs/{d['fw_job']}/firmware", raw=True)
+        if code != 200:
+            return err("Firmware nie jest gotowe", 404)
+        return data, 200, {"Content-Type": "application/octet-stream",
+                           "Content-Disposition": f"attachment; filename={d['code']}.factory.bin", "Cache-Control": "no-store"}
+
+    @app.get("/api/admin/devices/<int:did>/manifest.json")
+    @need("admin")
+    def firmware_manifest(did):
+        """Manifest dla ESP Web Tools: wgranie przez USB z przeglądarki (Chrome/Edge na komputerze)."""
+        d, e = fw_device(did)
+        if e:
+            return e
+        chip = "ESP32-S3" if "s3" in cat.MODELS[d["model"]]["board"] else "ESP32"
+        return jsonify(name=f"Sterownik {d['code']}", version=d["fw_job"], new_install_prompt_erase=True,
+                       builds=[{"chipFamily": chip, "parts": [{"path": f"/api/admin/devices/{did}/firmware.bin", "offset": 0}]}])
 
     @app.route("/api/admin/config", methods=["GET", "PUT"])
     @need("admin")

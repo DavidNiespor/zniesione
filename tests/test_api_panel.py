@@ -326,6 +326,7 @@ def esphome_doc(text):
     class L(yaml.SafeLoader):
         pass
     L.add_constructor("!secret", lambda loader, node: "secret:" + node.value)
+    L.add_constructor("!lambda", lambda loader, node: "lambda:" + node.value)
     return yaml.load(text, Loader=L)
 
 
@@ -338,9 +339,35 @@ def test_esphome_yaml_is_valid_and_has_door_failsafe(app, admin, farmer):
         c.patch(f"/api/my/devices/{did}/channels/ch1", {"name": 'Światło: "hala" #1'})
         doc = esphome_doc(c.get(f"/api/my/devices/{did}/yaml").get_data(as_text=True))
         sw = {s["id"]: s for s in doc["switch"]}
-        assert sw["ch1"]["name"] == 'Światło: "hala" #1' and sw["ch2"]["name"] == "Drzwi: otwórz"
+        assert sw["ch1"]["name"] == "ch1" and sw["ch2"]["name"] == "ch2"     # nazwa = klucz: tak web_server dopasowuje URL
         assert all(s["restore_mode"] == "ALWAYS_OFF" for s in sw.values())
         for k in ("ch2", "ch3"):
             assert sw[k]["interlock"] == ["ch2", "ch3"]
             assert sw[k]["on_turn_on"] == [{"delay": "35s"}, {"switch.turn_off": k}]
         assert "interlock" not in sw["ch1"] and doc["api"]["encryption"]["key"] == "secret:api_key"
+
+
+def test_firmware_settings_sensor_wifi_and_stable_keys(app, admin, farmer):
+    c, _ = farmer
+    did = c.post("/api/my/device-orders", {"model": "tr4"}).get_json()["id"]
+    admin.patch(f"/api/admin/devices/{did}", {"stage": 1})
+    url = f"/api/admin/devices/{did}"
+    for bad in ({"sensor": "bmp"}, {"sensor": "sht3x", "sensor_pins": {"sda": 21, "scl": 22}},      # 21 to przekaźnik
+                {"sensor": "dht22", "sensor_pins": {"pin": 99}}, {"sensor": "sht3x", "sensor_pins": {"sda": 32, "scl": 32}},
+                {"wifi_ssid": "x" * 33}):
+        assert admin.patch(url, bad).status_code == 400, bad
+    d = admin.patch(url, {"sensor": "sht3x", "sensor_pins": {"sda": 32, "scl": 33}, "wifi_ssid": "Kurnik", "wifi_password": "tajne123"}).get_json()
+    assert (d["sensor"], d["sensor_pins"], d["wifi_ssid"], d["wifi_set"], d["chip"]) == ("sht3x", {"sda": 32, "scl": 33}, "Kurnik", True, "ESP32")
+    assert "wifi_password" not in d
+    doc = esphome_doc(c.get(f"/api/my/devices/{did}/yaml").get_data(as_text=True))
+    assert doc["i2c"] == {"sda": "GPIO32", "scl": "GPIO33"} and doc["sensor"][0]["platform"] == "sht3xd"
+    post = doc["interval"][0]["then"][0]["http_request.post"]
+    assert post["url"] == "http://10.8.0.1:8000/api/device/readings" and post["request_headers"]["X-Api-Key"] == "secret:portal_key"
+    assert "id(temp).state" in post["body"] and "id(hum).state" in post["body"]
+    s1 = admin.get(f"/api/admin/devices/{did}/secrets").get_data(as_text=True)
+    s2 = admin.get(f"/api/admin/devices/{did}/secrets").get_data(as_text=True)
+    assert s1 == s2 and 'wifi_ssid: "Kurnik"' in s1 and "portal_key:" in s1                    # klucze stałe: OTA pasuje
+    admin.patch(url, {"sensor": "ds18b20", "sensor_pins": {"pin": 4}})
+    doc = esphome_doc(c.get(f"/api/my/devices/{did}/yaml").get_data(as_text=True))
+    body = doc["interval"][0]["then"][0]["http_request.post"]["body"]
+    assert doc["sensor"][0]["platform"] == "dallas_temp" and "id(hum)" not in body and 'std::string h = "null"' in body
