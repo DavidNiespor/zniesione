@@ -8,6 +8,7 @@ Wszystko, czego portal potrzebuje do działania, jest w jednym pliku [`docker-co
 | `zniesione` | portal (gunicorn, silnik harmonogramów, baza SQLite w wolumenie `zniesione-data`) |
 | `wireguard` | serwer VPN, przez który portal łączy się ze sterownikami w kurnikach (10.8.0.x) |
 | `cloudflared` | tunel Cloudflare: HTTPS z internetu bez otwierania portów 80 i 443 |
+| `dns` | ustawia w Cloudflare rekord `wg.twojadomena.pl` → IP serwera (bez proxy) i pilnuje go przy zmianie IP |
 | `kopie` | codzienna kopia bazy do wolumenu `kopie`, przechowywana 14 dni |
 
 ```
@@ -41,8 +42,13 @@ Oba sposoby uruchamiają ten sam plik `docker-compose.yml` z GitHuba.
    Subdomain puste (albo `www`), Domain: Twoja domena, Path puste, Service URL **`http://portal:8000`**
    (w starszym panelu: Type **HTTP** i URL `portal:8000`). Nie `https://`: szyfrowanie zapewnia Cloudflare.
 5. **SSL/TLS → Edge Certificates → Always Use HTTPS**: włącz. Logowanie działa tylko przez `https://`.
-6. **DNS → Add record** dla sterowników: typ **A**, nazwa `wg`, adres = publiczny IP serwera, **Proxy: DNS only** (szara chmurka).
-   Cloudflare nie przenosi WireGuard, więc ten rekord musi omijać proxy.
+   Rekord DNS dla adresu strony Cloudflare tworzy sam przy zapisie tej trasy.
+6. Rekord dla sterowników (`wg.twojadomena.pl`, WireGuard nie przechodzi przez proxy Cloudflare) ustawia kontener `dns`.
+   Potrzebuje tokenu API: **My Profile → API Tokens → Create Token → szablon „Edit zone DNS”** → Zone Resources:
+   *Include → Specific zone → Twoja domena* → **Continue → Create Token**. Skopiuj token jako `CF_API_TOKEN`,
+   a `WG_HOST` ustaw na np. `wg.twojadomena.pl`.
+   Bez tokenu dodaj rekord ręcznie: **DNS → Add record**, typ **A**, nazwa `wg`, adres = publiczny IP serwera,
+   **Proxy: DNS only** (szara chmurka). Przy zmiennym IP trzeba go wtedy poprawiać samemu.
 7. (Zalecane) **Security → WAF → Rate limiting rules**: np. 20 żądań na minutę na `/api/auth/login`.
 
 ## 2a. Serwer z Docker Compose
@@ -53,7 +59,7 @@ sudo git clone https://github.com/DavidNiespor/zniesione.git /opt/zniesione
 cd /opt/zniesione
 sudo cp .env.example .env
 python3 -c "import secrets;print(secrets.token_hex(32))"     # wklej jako SECRET_KEY
-sudo nano .env                                              # SECRET_KEY i TUNNEL_TOKEN
+sudo nano .env                                              # SECRET_KEY, TUNNEL_TOKEN, CF_API_TOKEN, WG_HOST
 sudo docker compose up -d --build
 sudo docker compose exec zniesione flask --app zniesione create-admin
 ```
@@ -69,7 +75,7 @@ Aktualizacja: `cd /opt/zniesione && sudo git pull && sudo docker compose up -d -
    - Repository URL: `https://github.com/DavidNiespor/zniesione`, Reference: `refs/heads/main`,
    - Compose path: `docker-compose.yml`,
    - repozytorium prywatne: włącz **Authentication** (login GitHub i token z dostępem do repozytorium).
-2. **Environment variables**: dodaj `SECRET_KEY` i `TUNNEL_TOKEN` (opcjonalnie `WG_PORT`, `KEEP_DAYS`, `TZ`), jak w `.env.example`.
+2. **Environment variables**: dodaj `SECRET_KEY`, `TUNNEL_TOKEN`, `CF_API_TOKEN` i `WG_HOST` (opcjonalnie `WG_PORT`, `KEEP_DAYS`, `TZ`), jak w `.env.example`.
 3. **Deploy the stack**. Pierwsze uruchomienie buduje obraz portalu, to trwa około minuty.
 4. Konto administratora: **Containers → zniesione-zniesione-1 → Console → Connect** (`/bin/sh`),
    potem `flask --app zniesione create-admin`.
@@ -81,7 +87,8 @@ Aktualizacja: **Stacks → zniesione → Pull and redeploy** (można też włąc
 1. Sprawdź stan: `docker compose ps` (serwer) albo lista kontenerów w Portainerze. Portal ma być „healthy”,
    w logach `wireguard` widać „WireGuard działa”, a w Cloudflare tunel ma status „Healthy”.
 2. Zaloguj się jako administrator na `https://twojadomena.pl`.
-3. **Administrator → Konfiguracja**: „Adres serwera” = `wg.twojadomena.pl`, „Port” = `51820` (albo Twój `WG_PORT`).
+3. W logach kontenera `dns` powinno być `wg.twojadomena.pl -> <IP>: created` (albo `unchanged`). Adres i port WireGuard
+   portal bierze ze zmiennych `WG_HOST` i `WG_PORT`, więc w **Administrator → Konfiguracja** nie trzeba ich wpisywać.
 4. Dla każdego sterownika: konfiguracja ESPHome (przycisk w panelu) i **Dane techniczne → Pobierz secrets.yaml**
    (klucze WireGuard, uzupełnij Wi-Fi). Wgraj oba pliki do sterownika w ESPHome.
 
@@ -105,6 +112,7 @@ Odtworzenie: `docker compose stop zniesione`, skopiuj wybrany plik jako `/data/z
 | Cloudflare: błąd 502 | Adres usługi w tunelu musi być `http://portal:8000` (nie `https://`, nie `localhost`). |
 | Logowanie nie trzyma sesji | Portal otwarty przez `http://` lub po IP. Używaj `https://` i domeny. |
 | Sterownik „Brak połączenia” | Rekord `wg` z wyłączonym proxy, otwarty port UDP, poprawny adres i port w Konfiguracji, wgrany secrets.yaml. Podgląd tunelu: `docker compose exec wireguard wg show`. |
+| Logi `dns`: „Token nie ma dostępu do strefy” albo „Invalid token” | Token musi mieć szablon „Edit zone DNS” dla Twojej domeny, a `WG_HOST` musi być w tej domenie. |
 | `wireguard` restartuje się | Brak WireGuard w jądrze (`sudo modprobe wireguard`) albo brak `cap_add: NET_ADMIN`. |
 | Po restarcie kontenera `siec` portal nie działa | `docker compose up -d` odtwarza całość; `siec` i tak restartuje się tylko przy aktualizacji Dockera. |
 | Godziny harmonogramów przesunięte | Zmienna `TZ` musi być `Europe/Warsaw` (domyślnie tak jest). |

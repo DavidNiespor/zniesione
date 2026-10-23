@@ -15,7 +15,9 @@ RETRY_S = 30          # odstęp ponowienia po błędzie urządzenia
 DAY_S = 86400
 MODES = ("time", "sunrise", "sunset")
 KEEP = object()
-DEFAULTS = {"wg_endpoint": "wg.zniesione.pl", "wg_port": "51820", "net": "10.8.0"}
+# domyślne wartości Konfiguracji admina; w stacku adres i port WireGuard przychodzą ze zmiennych WG_HOST i WG_PORT
+DEFAULTS = {"wg_endpoint": os.environ.get("WG_ENDPOINT") or "wg.zniesione.pl",
+            "wg_port": os.environ.get("WG_PUBLIC_PORT") or "51820", "net": "10.8.0"}
 
 
 def cfg(db, k):

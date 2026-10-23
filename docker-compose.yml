@@ -1,4 +1,5 @@
-# Pełny stack zniesione.pl: portal, serwer WireGuard dla sterowników w kurnikach, tunel Cloudflare, kopie zapasowe.
+# Pełny stack zniesione.pl: portal, serwer WireGuard dla sterowników w kurnikach, tunel Cloudflare, rekord DNS
+# dla WireGuard, kopie zapasowe.
 #
 # Serwer:     cp .env.example .env  (uzupełnij)  &&  docker compose up -d --build
 # Portainer:  Stacks -> Add stack -> Repository -> to repozytorium, plik docker-compose.yml, zmienne z .env.example
@@ -36,6 +37,8 @@ services:
       REAL_IP_HEADER: CF-Connecting-IP    # ruch przychodzi wyłącznie przez cloudflared
       PROXY_COUNT: "1"
       WG_CONF: /data/wireguard/wg0.conf   # portal tworzy konfigurację serwera WireGuard i dopisuje sterowniki
+      WG_ENDPOINT: ${WG_HOST:-wg.zniesione.pl}   # adres i port WireGuard trafiają do konfiguracji sterowników
+      WG_PUBLIC_PORT: ${WG_PORT:-51820}
     volumes:
       - zniesione-data:/data
 
@@ -71,12 +74,26 @@ services:
         done
 
   cloudflared:
-    image: cloudflare/cloudflared:2024.12.2
+    image: cloudflare/cloudflared:2026.10.0   # nowsze wersje: hub.docker.com/r/cloudflare/cloudflared/tags
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     depends_on: [zniesione]
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:?ustaw TUNNEL_TOKEN z panelu Cloudflare Zero Trust}
+
+  dns:
+    # rekord A dla WireGuard (np. wg.zniesione.pl -> IP serwera, bez proxy) ustawiany w Cloudflare automatycznie;
+    # bez CF_API_TOKEN kontener tylko o tym przypomina, a rekord dodajesz ręcznie
+    image: zniesione:latest
+    pull_policy: never
+    restart: unless-stopped
+    depends_on: [zniesione]
+    command: ["python", "-m", "zniesione.ddns"]
+    healthcheck:
+      disable: true
+    environment:
+      CF_API_TOKEN: ${CF_API_TOKEN:-}
+      WG_HOST: ${WG_HOST:-wg.zniesione.pl}
 
   kopie:
     image: zniesione:latest
