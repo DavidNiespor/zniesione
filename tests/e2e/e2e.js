@@ -78,18 +78,28 @@ async function page() {
   ok(await p.wait(() => /Zapisano: 42,00 zł · saldo klienta: Dług: 42,00 zł/.test(p.toast()) && /Wydane/.test(p.text())), "zamówienie wydane na dług trafia do kartoteki");
   await p.nav("jaja");
   await p.wait(() => p.$("#f-zbior"));
-  // magazyn demo: 180 szt. (12 opak. w sklepie, 30 szt. rezerwy); zamówienie Anny (3 opak.) wydane -> 150 szt.
-  p.setv(p.$("#f-zbior"), "eggs", "50"); p.setv(p.$("#f-zbior"), "damaged", "2"); p.submit(p.$("#f-zbior"));
-  ok(await p.wait(() => /Dodano 48 dobrych jaj \(2 brudnych\/uszkodzonych odłożonych\)\. W magazynie: 198 szt\./.test(p.toast())), "zbiór na sztuki: brudne i uszkodzone nie idą do sprzedaży");
-  ok(await p.wait(() => /Zbiór: 50 szt\. \(w tym 2 brudnych\/uszkodzonych\)/.test(p.$("[data-egglog]").textContent) && /Wolne\s*78 szt\./.test(p.$("[data-pools]").textContent)),
-    "dziennik i stan magazynu: wolne 78 szt.");
+  // magazyn demo: 180 szt. (12 opak. w sklepie, 30 szt. rezerwy) i 24 szt. do sortowania; zamówienie Anny (3 opak.) wydane -> 150 szt.
+  p.setv(p.$("#f-zbior"), "eggs", "50"); p.submit(p.$("#f-zbior"));
+  ok(await p.wait(() => /Zapisano zbiór: 50 szt\. Do sortowania: 74 szt\./.test(p.toast())), "zbiór na sztuki trafia do sortowania");
+  let so = p.$("form[data-f=sort]");
+  ok(so.elements.good.value === "74" && /Do sortowania:\s*74 szt\./.test(so.textContent), "sortowanie: wszystkie do posortowania podpowiedziane jako dobre");
+  p.setv(so, "good", "70"); p.setv(so, "dirty", "3"); p.setv(so, "damaged", "1"); so.elements.good.dispatchEvent(new p.w.Event("input", { bubbles: true }));
+  ok(/Razem 74 z 74 szt\./.test(so.textContent), "podgląd sortowania");
+  p.submit(so);
+  ok(await p.wait(() => /Posortowano: 70 dobrych do magazynu, 3 brudnych, 1 uszkodzonych\. W magazynie: 220 szt\./.test(p.toast())),
+    "sortowanie: brudne i uszkodzone nie idą do magazynu");
+  ok(await p.wait(() => /Sortowanie: 70 dobrych, 3 brudnych, 1 uszkodzonych/.test(p.$("[data-egglog]").textContent) && /Wolne\s*100 szt\./.test(p.$("[data-pools]").textContent)),
+    "dziennik i stan magazynu: wolne 100 szt.");
   let al = p.$("form[data-f=alloc]");
   p.setv(al, "offer_packs", "20"); al.elements.offer_packs.dispatchEvent(new p.w.Event("input", { bubbles: true }));
-  ok(/Za mało jaj: brakuje 32 szt\./.test(al.textContent), "podgląd przydziału ostrzega przed brakiem jaj");
+  ok(/Za mało jaj: brakuje 10 szt\./.test(al.textContent), "podgląd przydziału ostrzega przed brakiem jaj");
   p.submit(al);
-  ok(await p.wait(() => /najwyżej 198 szt\./.test(p.toast())), "nie da się ogłosić więcej, niż jest w magazynie");
+  ok(await p.wait(() => /najwyżej 220 szt\./.test(p.toast())), "nie da się ogłosić więcej, niż jest w magazynie");
   p.setv(al, "offer_packs", "9"); p.setv(al, "reserved", "40"); p.submit(al);
-  ok(await p.wait(() => /W sklepie: 9 opak\., rezerwa: 40 szt\., wolne: 68 szt\./.test(p.toast())), "ogłoszenie w sklepie i rezerwa dla stałych klientów");
+  ok(await p.wait(() => /W sklepie: 9 opak\., rezerwa: 40 szt\., wolne: 90 szt\./.test(p.toast())), "ogłoszenie w sklepie i rezerwa dla stałych klientów");
+  const gf = p.$("form[data-f=gift]"); p.setv(gf, "eggs", "10"); p.setv(gf, "who", "Mama"); p.submit(gf);
+  ok(await p.wait(() => /Zapisano: 10 szt\. dla: Mama\. Wolne: 80 szt\./.test(p.toast()) && /Rozdane: 10 szt\. · Mama/.test(p.$("[data-egglog]").textContent)),
+    "rozdane: 10 szt. dla mamy");
   // sprzedaż z kartoteki: klient z długiem płaci więcej, powstaje nadpłata
   await p.nav("sprzedaz");
   await p.wait(() => p.$("form[data-f=sale]"));
@@ -102,12 +112,12 @@ async function page() {
   typ(sf2, "eggs", "20"); typ(sf2, "paid", "50");
   ok(/Do zapłaty: 28,00 zł/.test(sf2.textContent) && /Saldo po sprzedaży: Nadpłata: 4,00 zł/.test(sf2.textContent), "podgląd: do zapłaty i saldo po sprzedaży");
   p.submit(sf2);
-  ok(await p.wait(() => /saldo klienta: Nadpłata: 4,00 zł/.test(p.toast()) && p.$("[data-poolinfo]") && /Wolne: 48 szt\./.test(p.$("[data-poolinfo]").textContent)),
-    "sprzedaż 20 szt. gotówką z nadpłatą, wolne 48 szt.");
+  ok(await p.wait(() => /saldo klienta: Nadpłata: 4,00 zł/.test(p.toast()) && p.$("[data-poolinfo]") && /Wolne: 60 szt./.test(p.$("[data-poolinfo]").textContent)),
+    "sprzedaż 20 szt. gotówką z nadpłatą, wolne 60 szt.");
   sf2 = p.$("form[data-f=sale]"); p.setv(sf2, "client_id", "");
   ok(sf2.querySelector("[name=method][value=later]").disabled, "klient spoza kartoteki nie może kupić na dług");
   typ(sf2, "eggs", "99"); p.submit(sf2);
-  ok(await p.wait(() => /Wolnych jaj jest tylko 48 szt\./.test(p.toast())), "sprzedaż ponad wolne jaja jest odrzucona");
+  ok(await p.wait(() => /Wolnych jaj jest tylko 60 szt\./.test(p.toast())), "sprzedaż ponad wolne jaja jest odrzucona");
   // stały klient: wydanie z rezerwy
   await p.nav("zamowienia");
   ok(await p.wait(() => p.$("[data-subs]") && /Pani Zofia \(sąsiadka\) · 30 szt\. co tydzień/.test(p.$("[data-subs]").textContent) && /do wydania/.test(p.$("[data-subs]").textContent)),
@@ -119,8 +129,15 @@ async function page() {
   ok(await p.wait(() => /Zapisano: 42,00 zł · saldo klienta: Dług: 38,00 zł/.test(p.toast()) && p.$("[data-subs]") && /następna dostawa/.test(p.$("[data-subs]").textContent)
     && !/do wydania/.test(p.$("[data-subs]").textContent)), "po wydaniu: dług w kartotece, następna dostawa za tydzień");
   await p.nav("wiecej");
-  const MORE = ["Sprzedaż", "Klienci", "Oferta", "Stado", "Sterowniki", "Raporty", "Wydatki", "Wyposażenie", "Baza wiedzy", "Ustawienia"];
-  ok(await p.wait(() => p.$$(".mtile").length === 10) && MORE.every((t) => p.btn(t)), "Więcej: 10 dużych kafelków (w tym Wydatki i Wyposażenie)");
+  const MORE = ["Sprzedaż", "Klienci", "Oferta", "Stado", "Sterowniki", "Raporty", "Pasza i mieszalnia", "Wydatki", "Wyposażenie", "Baza wiedzy", "Ustawienia"];
+  ok(await p.wait(() => p.$$(".mtile").length === 11) && MORE.every((t) => p.btn(t)), "Więcej: 11 dużych kafelków (w tym Pasza, Wydatki, Wyposażenie)");
+  await p.nav("pasza");
+  ok(await p.wait(() => p.$("form[data-f=mix]") && /Pszenica: 25 kg/.test(p.$("[data-mixneed]").textContent)), "mieszalnia: ile czego potrzeba na 50 kg");
+  const mf = p.$("form[data-f=mix]"); p.setv(mf, "kg", "40"); mf.elements.kg.dispatchEvent(new p.w.Event("input", { bubbles: true }));
+  ok(/Śruta sojowa: 7,2 kg/.test(p.$("[data-mixneed]").textContent), "podgląd mieszania po zmianie ilości");
+  p.submit(mf);
+  ok(await p.wait(() => /Wymieszano 40 kg/.test(p.toast()) && /Pszenica · 280 kg/.test(p.$("[data-feeditems]").textContent)), "mieszanie odejmuje składniki z magazynu");
+  ok(/białko 16,3%/.test(p.text()), "receptura pokazuje zawartość białka");
   await p.nav("wydatki");
   await p.wait(() => p.$("form[data-f=expense]"));
   const ef = p.$("form[data-f=expense]"); p.setv(ef, "name", "Pszenica"); p.setv(ef, "qty", "100"); p.setv(ef, "unit", "kg"); p.setv(ef, "unit_price", "1.15"); p.submit(ef);
@@ -156,7 +173,7 @@ async function page() {
   p.click(p.$$("[data-kb]").find((a) => /Pierwsze uruchomienie/.test(a.textContent)));
   ok(await p.wait(() => p.$("article.prose h1") && /Pierwsze uruchomienie/.test(p.$("article.prose h1").textContent)
     && p.$("article.prose ol li") && p.$("article.prose strong") && p.$("article.prose blockquote")), "Baza wiedzy: artykuł z formatowaniem (lista, pogrubienie, ramka)");
-  await p.nav("wiecej"); await p.wait(() => p.$$(".mtile").length === 7);
+  await p.nav("wiecej"); await p.wait(() => p.$$(".mtile").length === 11);
   p.click(p.$(".mtile[data-v=oferta]"));
   await p.wait(() => p.$("form[data-f=offer]"));
   const off = p.$("form[data-f=offer]"); p.setv(off, "price10", "15"); p.submit(off);
@@ -242,6 +259,13 @@ async function page() {
   ok(await p.wait(() => p.$$("[data-dev]").length === 2), "zamówienie sterownika T-Relay");
 
   // ---- admin ----
+  await p.nav("ustawienia");
+  await p.wait(() => p.$("form[data-f=settings]"));
+  const stf = p.$("form[data-f=settings]");
+  ok(stf.elements.remind_hour.value === "19" && stf.elements.remind_on.checked, "ustawienia: przypomnienie o zbiorze domyślnie o 19:00");
+  p.setv(stf, "remind_hour", "20"); p.submit(stf);
+  ok(await p.wait(() => /Przypomnienie o 20:00/.test(p.toast())), "zmiana godziny przypomnienia");
+  ok(p.btn("Dodaj jako aplikację"), "ustawienia: przycisk instalacji aplikacji");
   await p.clickBtn("Wyloguj");
   await p.wait(() => /Jaja prosto/.test(p.text()));
   await p.clickBtn("Zaloguj");
@@ -256,6 +280,17 @@ async function page() {
   await p.wait(() => p.$("[data-act=secrets]"));
   p.click(p.$("[data-act=secrets]"));
   ok(await p.wait(() => /wg_privkey: "[A-Za-z0-9+/]{43}="/.test(p.$("[data-yaml^='s']").textContent) && /wg_server_pubkey/.test(p.$("[data-yaml^='s']").textContent)), "admin pobiera secrets.yaml z kluczami WireGuard");
+  const fwf = p.$("form[data-f=fwset]");
+  ok(fwf && /Firmware ESPHome \(ESP32-S3\)/.test(p.$("[data-fw]").textContent), "firmware: ustawienia w karcie sterownika");
+  p.setv(fwf, "wifi_ssid", "Kurnik"); p.setv(fwf, "wifi_password", "haslo1234"); p.setv(fwf, "sensor", "sht3x");
+  ok(!fwf.querySelector("[data-pin=sda]").hidden && fwf.querySelector("[data-pin=pin]").hidden, "czujnik SHT3x: pola SDA i SCL");
+  p.setv(fwf, "sda", "8"); p.setv(fwf, "scl", "9"); p.submit(fwf);
+  ok(await p.wait(() => /Zapisano ustawienia firmware/.test(p.toast())), "zapis Wi-Fi i czujnika");
+  p.click(p.$("[data-act=fw][data-v=compile]"));
+  ok(await p.wait(() => /nie jest skonfigurowane/.test(p.toast())), "bez kontenera budującego: czytelny komunikat");
+  await p.clickBtn("Import z e-kurnika");
+  ok(await p.wait(() => p.$("form[data-f=ekupload]")), "zakładka importu z e-kurnika");
+  await p.clickBtn("Sterowniki"); await p.wait(() => p.$$("[data-dev]").length === 2);
   const rd = p.$$("form[data-f=reading]")[0]; p.setv(rd, "t", "28"); p.setv(rd, "h", "55"); p.submit(rd);
   ok(await p.wait(() => /Odczyt wysłany/.test(p.toast())), "symulowany odczyt 28 °C wysłany");
   await p.clickBtn("Narzędzia"); await p.wait(() => p.$("[data-act=tick]"));

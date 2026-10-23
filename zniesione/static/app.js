@@ -20,13 +20,18 @@ const STAGES = ['Zamówione', 'Konfiguracja gotowa', 'Wysłane', 'Połączone'];
 const MAIN = [['start', '🏠', 'Start'], ['jaja', '🥚', 'Jaja'], ['sterowanie', '🎛️', 'Sterowanie'], ['zamowienia', '📋', 'Zamówienia']];
 const MORE = [['sprzedaz', '🧺', 'Sprzedaż', 'Zapisz sprzedaż i sposób płatności'], ['klienci', '👥', 'Klienci', 'Kartoteka: zakupy, wpłaty, długi i nadpłaty'], ['oferta', '🏷️', 'Oferta', 'Cena, opis i położenie gospodarstwa'],
   ['stado', '🐔', 'Stado', 'Kury i notatki o stadzie'], ['sterowniki', '🔌', 'Sterowniki', 'Zamów sterownik, sprawdź dostawę'],
-  ['raporty', '📊', 'Raporty', 'Sprzedaż i jaja w liczbach'], ['wydatki', '🧾', 'Wydatki', 'Pasza, weterynarz, ściółka i inne koszty'], ['wyposazenie', '🧰', 'Wyposażenie', 'Poidła, karmidła, lampy i przeglądy'],
+  ['raporty', '📊', 'Raporty', 'Sprzedaż i jaja w liczbach'], ['pasza', '🌾', 'Pasza i mieszalnia', 'Magazyn zboża, receptury, mieszanie'], ['wydatki', '🧾', 'Wydatki', 'Pasza, weterynarz, ściółka i inne koszty'], ['wyposazenie', '🧰', 'Wyposażenie', 'Poidła, karmidła, lampy i przeglądy'],
   ['wiedza', '📚', 'Baza wiedzy', 'Porady i instrukcje krok po kroku'],
   ['ustawienia', '⚙️', 'Ustawienia', 'Wygląd, konto, wylogowanie']];
 const THEMES = {auto: 'automatyczny', light: 'jasny', dark: 'czarny'};
 
 let me = null, current = '', seq = 0, liveN = 0, shopQ = '', hasSun = false, kbQ = '', kbCat = '';
 const DEV = {}, SCH = {}, CHART = {};
+let installEvt = null;
+const standalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+const dismissed = k => { try { return localStorage.getItem('zn-hide-' + k) === '1' } catch (e) { return false } };
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e });
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
 // ---------- komunikacja ----------
 async function api(m, u, b, h) {
@@ -81,7 +86,7 @@ const VIEWS = {
   start: {fn: vStart, role: 'farmer', live: true}, jaja: {fn: vEggs, role: 'farmer'}, sterowanie: {fn: vControl, role: 'farmer', live: true},
   zamowienia: {fn: vOrders, role: 'farmer'}, wiecej: {fn: vMore, role: 'farmer'}, klienci: {fn: vClients, role: 'farmer'}, sprzedaz: {fn: vSale, role: 'farmer'},
   oferta: {fn: vOffer, role: 'farmer'}, stado: {fn: vFlock, role: 'farmer'}, sterowniki: {fn: vDevices, role: 'farmer'},
-  raporty: {fn: vReports, role: 'farmer'}, ustawienia: {fn: vSettings, role: 'farmer'}, wiedza: {fn: vKb, role: 'farmer'}, wydatki: {fn: vExpenses, role: 'farmer'}, wyposazenie: {fn: vEquipment, role: 'farmer'},
+  raporty: {fn: vReports, role: 'farmer'}, ustawienia: {fn: vSettings, role: 'farmer'}, wiedza: {fn: vKb, role: 'farmer'}, wydatki: {fn: vExpenses, role: 'farmer'}, pasza: {fn: vFeed, role: 'farmer'}, 'admin-import': {fn: vAdminImport, role: 'admin'}, wyposazenie: {fn: vEquipment, role: 'farmer'},
   admin: {fn: () => vAdmin('dev'), role: 'admin'}, 'admin-cfg': {fn: () => vAdmin('cfg'), role: 'admin'}, 'admin-tools': {fn: () => vAdmin('tools'), role: 'admin'},
   'admin-kb': {fn: vAdminKb, role: 'admin'},
 };
@@ -234,36 +239,62 @@ async function vStart() {
       <b>${esc(x.client_name)}: ${x.eggs} szt.</b><span class="mu">stały klient, dostawa do wydania</span></div><button class="pri sm" data-act="go" data-v="sprzedaz/sub-${x.id}">Wydaj</button></li>`).join('')}
       ${checks.map(x => `<li><span class="ti" aria-hidden="true">🧰</span><div class="tb"><b>${esc(x.name)}</b><span class="mu">przegląd ${new Date(x.next_check).toLocaleDateString('pl-PL')}</span></div>
       <button class="sm" data-act="go" data-v="wyposazenie">Pokaż</button></li>`).join('')}</ul></section>` : ''}
-    <section class="card"><h2>🥚 Jaja</h2>${poolRows(eg.stock)}<div class="actions"><button data-act="go" data-v="jaja">Zbiór, sklep i rezerwa</button></div></section>
+    ${eg.reminder_due ? reminderBox() : ''}
+    <section class="card"><h2>🥚 Jaja</h2>${poolRows(eg.stock)}<div class="actions"><button data-act="go" data-v="jaja">Zbiór, sortowanie, sklep</button></div></section>
+    ${standalone() || dismissed('install') ? '' : `<section class="card" data-installbox><h2>📲 Portal jako aplikacja</h2><p class="mu">Dodaj ikonę na ekran telefonu: portal otworzy się jak zwykła aplikacja.</p>
+      <div class="actions"><button class="pri" data-act="install">Dodaj jako aplikację</button><button class="ghost" data-act="dismiss" data-v="install">Nie teraz</button></div>
+      <p class="mu" data-installhelp hidden></p></section>`}
     <section class="card"><h2>💰 Kasa i długi</h2><div class="stats">${stat('Dziś wpłynęło', zl(fin.received_total))}
     ${stat('Klienci winni', zl(fin.debts), fin.debtors ? `${fin.debtors} z długiem` : 'nikt nie ma długu')}${fin.overpaid ? stat('Nadpłaty klientów', zl(fin.overpaid)) : ''}</div>
     <div class="actions"><button data-act="go" data-v="klienci">Kartoteka klientów</button></div></section>`;
 }
 
 // ---------- Jaja ----------
-const EGG = {collect: ['🥚', 'Zbiór'], sale: ['🧺', 'Sprzedaż'], loss: ['💥', 'Strata'], inventory: ['📋', 'Inwentaryzacja']};
-const eggLog = es => es.slice(0, 12).map(e => `<li><span class="ti" aria-hidden="true">${EGG[e.kind][0]}</span><div class="tb">
-  <b>${EGG[e.kind][1]}: ${e.kind === 'inventory' ? (e.eggs > 0 ? '+' : '') + e.eggs : e.eggs} szt.${e.kind === 'collect' && e.damaged ? ` (w tym ${e.damaged} brudnych/uszkodzonych)` : ''}</b>
-  <span class="mu">${today(e.at) ? 'dziś' : day(e.at)}, ${hm(e.at)}${e.note ? ' · ' + esc(e.note) : ''}</span></div></li>`).join('')
+const EGG = {collect: ['🥚', 'Zbiór'], sort: ['🧽', 'Sortowanie'], sale: ['🧺', 'Sprzedaż'], gift: ['🎁', 'Rozdane'], loss: ['💥', 'Strata'],
+  inventory: ['📋', 'Inwentaryzacja']};
+function eggText(e) {
+  if (e.kind === 'sort') return `${e.eggs} dobrych${e.dirty ? `, ${e.dirty} brudnych` : ''}${e.damaged ? `, ${e.damaged} uszkodzonych` : ''}`;
+  if (e.kind === 'inventory') return `${e.eggs > 0 ? '+' : ''}${e.eggs} szt.`;
+  return `${e.eggs} szt.${e.kind === 'gift' && e.who ? ' · ' + esc(e.who) : ''}`;
+}
+const eggLog = es => es.slice(0, 15).map(e => `<li><time datetime="${esc(e.at)}">${today(e.at) ? hm(e.at) : day(e.at)}</time>
+  <div class="tb"><b>${EGG[e.kind][0]} ${EGG[e.kind][1]}: ${eggText(e)}</b>${e.note ? `<span class="mu">${esc(e.note)}</span>` : ''}</div></li>`).join('')
   || '<li class="mu">Brak wpisów z ostatnich 30 dni.</li>';
-const poolRows = p => `<div class="stats">${stat('W magazynie (dobre)', p.eggs + ' szt.', '≈ ' + Math.floor(p.eggs / 10) + ' opak.')}
+const poolRows = p => `<div class="stats">${p.unsorted ? stat('Do sortowania', p.unsorted + ' szt.', 'zebrane, jeszcze nie posortowane') : ''}
+  ${stat('W magazynie (dobre)', p.eggs + ' szt.', '≈ ' + Math.floor(p.eggs / 10) + ' opak.')}
   ${stat('Ogłoszone w sklepie', p.offer_packs + ' opak.', p.offer_packs * 10 + ' szt.')}${stat('Rezerwa stałych klientów', p.reserved + ' szt.')}
-  ${p.committed ? stat('Do wydania (zamówienia)', p.committed + ' szt.') : ''}${stat('Wolne', p.free + ' szt.', 'do sprzedaży na miejscu')}</div>`;
+  ${p.committed ? stat('Do wydania (zamówienia)', p.committed + ' szt.') : ''}${stat('Wolne', p.free + ' szt.', 'do sprzedaży i rozdania')}</div>`;
+const reminderBox = () => `<div class="alert bad" role="status"><b>⏰ Nie wpisano dzisiejszego zbioru</b>Wpisz go teraz, żeby stan jaj się zgadzał.
+  <div class="actions" style="margin-top:.5rem"><button class="pri sm" data-act="go" data-v="jaja/zbior">Wpisz zbiór</button></div></div>`;
 async function vEggs(arg) {
   const [f, lg] = await Promise.all([load('/api/my/farm'), load('/api/my/eggs?days=30')]), p = lg.stock;
-  return {html: `<h1>Jaja</h1><section class="card" data-pools>${poolRows(p)}</section>
+  const gifts = Object.entries(lg.given_to);
+  return {html: `<h1>Jaja</h1>${lg.reminder_due ? reminderBox() : ''}<section class="card" data-pools>${poolRows(p)}</section>
     <div class="grid">
-    <form class="card" data-f="collect" id="f-zbior"><h2>🥚 Zbiór jaj</h2><p class="mu">Policz wszystkie zebrane. Brudne i uszkodzone nie trafią do sprzedaży.</p>
-      <div class="row"><div><label for="n-zbior">Zebrane jaja (szt.)</label><input id="n-zbior" name="eggs" type="number" min="1" max="100000" required inputmode="numeric"></div>
-      <div><label for="d-zbior">W tym brudne / uszkodzone (szt.)</label><input id="d-zbior" name="damaged" type="number" min="0" value="0" inputmode="numeric"></div></div>
-      <label for="o-zbior">Uwagi</label><input id="o-zbior" name="note" maxlength="200" placeholder="np. 2 pęknięte">
+    <form class="card" data-f="collect" id="f-zbior"><h2>🥚 Zbiór</h2><p class="mu">Wpisz wszystkie zebrane jaja. Trafią do sortowania.</p>
+      <label for="n-zbior">Zebrane jaja (szt.)</label><input id="n-zbior" name="eggs" type="number" min="1" max="100000" required inputmode="numeric">
+      <label for="o-zbior">Uwagi</label><input id="o-zbior" name="note" maxlength="200" placeholder="np. kurnik 2">
       <div class="actions"><button class="pri">Zapisz zbiór</button></div></form>
+    <form class="card" data-f="sort" id="f-sort"><h2>🧽 Sortowanie</h2><p class="mu">Do sortowania: <b data-unsorted>${p.unsorted} szt.</b>
+      Dobre trafią do magazynu. Brudne i uszkodzone nie idą do sprzedaży.</p>
+      <div class="row"><div><label for="so-g">Dobre</label><input id="so-g" name="good" type="number" min="0" value="${p.unsorted}" inputmode="numeric"></div>
+      <div><label for="so-d">Brudne</label><input id="so-d" name="dirty" type="number" min="0" value="0" inputmode="numeric"></div>
+      <div><label for="so-u">Uszkodzone</label><input id="so-u" name="damaged" type="number" min="0" value="0" inputmode="numeric"></div></div>
+      <p class="mu" data-sortsum aria-live="polite"></p>
+      <div class="actions"><button class="pri"${p.unsorted ? '' : ' disabled'}>Zapisz sortowanie</button></div></form>
     <form class="card" data-f="alloc"><h2>🏷️ Sklep i rezerwa</h2><p class="mu">Ile opakowań ogłaszasz w sklepie, a ile sztuk odkładasz dla stałych klientów.</p>
-      <div class="row"><div><label for="al-o">Ogłoszone w sklepie (opak. po 10 szt.)</label><input id="al-o" name="offer_packs" type="number" min="0" value="${p.offer_packs}" required inputmode="numeric"></div>
-      <div><label for="al-r">Rezerwa dla stałych klientów (szt.)</label><input id="al-r" name="reserved" type="number" min="0" value="${p.reserved}" required inputmode="numeric"></div></div>
+      <div class="row"><div><label for="al-o">W sklepie (opak. po 10 szt.)</label><input id="al-o" name="offer_packs" type="number" min="0" value="${p.offer_packs}" required inputmode="numeric"></div>
+      <div><label for="al-r">Rezerwa (szt.)</label><input id="al-r" name="reserved" type="number" min="0" value="${p.reserved}" required inputmode="numeric"></div></div>
       ${lg.reserve_needed_7d ? `<p class="mu">Stali klienci w najbliższych 7 dniach: <b>${lg.reserve_needed_7d} szt.</b>
         <button type="button" class="sm" data-act="reserveneed" data-v="${lg.reserve_needed_7d}">Zarezerwuj tyle</button></p>` : ''}
-      <p class="mu" data-allocsum aria-live="polite"></p><div class="actions"><button class="pri">Zapisz</button></div></form></div>
+      <p class="mu" data-allocsum aria-live="polite"></p><div class="actions"><button class="pri">Zapisz</button></div></form>
+    <form class="card" data-f="gift"><h2>🎁 Rozdane</h2><p class="mu">Jaja dla rodziny i znajomych (np. mama), żeby wiedzieć, ile idzie poza sprzedaż.</p>
+      <div class="row"><div><label for="gi-n">Ile sztuk</label><input id="gi-n" name="eggs" type="number" min="1" required inputmode="numeric"></div>
+      <div><label for="gi-w">Komu</label><input id="gi-w" name="who" list="gi-list" required maxlength="60" placeholder="np. mama"></div></div>
+      <datalist id="gi-list">${['Mama', 'Rodzina', ...lg.recipients].filter((x, i, a) => a.indexOf(x) === i).map(w => `<option value="${esc(w)}">`).join('')}</datalist>
+      <label for="gi-o">Uwagi</label><input id="gi-o" name="note" maxlength="200">
+      ${gifts.length ? `<p class="mu">W 30 dni: ${gifts.map(([w, n]) => `${esc(w)} ${n} szt.`).join(' · ')}</p>` : ''}
+      <div class="actions"><button class="pri">Zapisz rozdane</button></div></form></div>
     <div class="card"><h2>🧺 Sprzedaż</h2><p class="mu">Sprzedaż z magazynu, rezerwy albo ogłoszonych opakowań, ze sposobem płatności i kartoteką klienta.</p>
       <div class="actions"><button class="pri" data-act="go" data-v="sprzedaz">Zapisz sprzedaż</button></div>
       <details><summary>💥 Strata (stłuczone, zepsute)</summary><form data-f="loss"><div class="row"><div><label for="ls-n">Ile sztuk</label>
@@ -272,10 +303,14 @@ async function vEggs(arg) {
       <details><summary>📋 Inwentaryzacja (policzyłem jaja)</summary><p class="mu">Wpisz, ile dobrych jaj naprawdę leży w magazynie. Portal poprawi stan.</p>
         <form data-f="inventory"><div class="row"><div><label for="in-n">Policzone jaja (szt.)</label><input id="in-n" name="eggs" type="number" min="0" value="${p.eggs}" required inputmode="numeric"></div>
         <div><label for="in-o">Uwagi</label><input id="in-o" name="note" maxlength="200"></div></div><div class="actions"><button>Zapisz stan</button></div></form></details></div>
-    <section class="card" style="margin-top:1rem"><h2>Ostatnie wpisy</h2><p class="mu">Z 30 dni: zebrano ${lg.collected} szt. (${lg.damaged} brudnych/uszkodzonych),
-      sprzedano ${lg.sold} szt., straty ${lg.lost} szt. Cena w sklepie: ${zl(f.price10)} za 10 szt. (<a href="#/oferta">zmień</a>).</p>
-    <ul class="list" data-egglog>${eggLog(lg.entries)}</ul></section>`,
-  after: () => { allocSum($('form[data-f=alloc]'), p); const i = arg === 'zbior' && $('#n-zbior'); if (i) i.focus() }};
+    <section class="card"><h2>Ostatnie wpisy</h2><p class="mu">Z 30 dni: zebrano ${lg.collected} szt. (dobrych ${lg.good}, brudnych ${lg.dirty}, uszkodzonych ${lg.damaged}),
+      sprzedano ${lg.sold} szt., rozdano ${lg.given} szt., straty ${lg.lost} szt. Cena w sklepie: ${zl(f.price10)} za 10 szt. (<a href="#/oferta">zmień</a>).</p>
+    <ul class="list log" data-egglog>${eggLog(lg.entries)}</ul></section>`,
+  after: () => { allocSum($('form[data-f=alloc]'), p); sortSum($('form[data-f=sort]')); const i = arg === 'zbior' && $('#n-zbior'); if (i) i.focus() }};
+}
+function sortSum(f) {
+  const e = f.elements, n = (+e.good.value || 0) + (+e.dirty.value || 0) + (+e.damaged.value || 0), un = POOLS.unsorted || 0;
+  $('[data-sortsum]', f).innerHTML = n > un ? `<b class="no">Razem ${n} szt., a do sortowania jest ${un} szt.</b>` : `Razem ${n} z ${un} szt.${un - n ? ` (zostanie ${un - n} do sortowania)` : ''}`;
 }
 let POOLS = {};
 function allocSum(f, p) {
@@ -458,7 +493,8 @@ async function vReports() {
     ${stat('Wydatki', zl(fin.expenses))}${stat('Zysk (sprzedaż − wydatki)', zl(fin.profit))}
     ${stat('Klienci winni', zl(fin.debts), `${fin.debtors} z długiem`)}${stat('Nadpłaty klientów', zl(fin.overpaid))}</div></section>
     <section class="card"><h2>🥚 Jaja</h2><div class="stats">${stat('Zebrane w 7 dni', e7.collected + ' szt.', `${nf(e7.collected / 7, 0)} jaj dziennie`)}
-    ${stat('Zebrane w 30 dni', e30.collected + ' szt.', `w tym ${e30.damaged} brudnych/uszkodzonych`)}${stat('Sprzedane w 30 dni', e30.sold + ' szt.')}${stat('Straty w 30 dni', e30.lost + ' szt.')}</div></section>
+    ${stat('Zebrane w 30 dni', e30.collected + ' szt.', `brudne ${e30.dirty}, uszkodzone ${e30.damaged}`)}${stat('Sprzedane w 30 dni', e30.sold + ' szt.')}
+    ${stat('Rozdane w 30 dni', e30.given + ' szt.', Object.entries(e30.given_to).map(([w, n]) => `${esc(w)} ${n}`).join(', '))}${stat('Straty w 30 dni', e30.lost + ' szt.')}</div></section>
     <section class="card"><h2>📋 Zamówienia ze sklepu</h2><div class="stats">${stat('Wszystkie', os.length)}${stat('Czeka na potwierdzenie', os.filter(o => o.status === 'pending').length)}
     ${stat('Do wydania', os.filter(o => o.status === 'confirmed').length)}${stat('Wydane', os.filter(o => o.status === 'delivered').length)}${stat('Odrzucone', os.filter(o => o.status === 'rejected').length)}</div></section>`;
 }
@@ -499,6 +535,70 @@ async function vFlock() {
     <p class="mu">${x.birds} kur${x.breed ? ' · ' + esc(x.breed) : ''}${x.since ? ' · od ' + new Date(x.since).toLocaleDateString('pl-PL') : ''}</p></div></div>
     ${x.notes ? `<p>${esc(x.notes)}</p>` : ''}<details><summary>Zmień dane stada</summary>${flockForm(x)}</details></section>`).join('')}
     <section class="card"><h2>${fl.length ? 'Dodaj kolejne stado' : 'Dodaj pierwsze stado'}</h2>${fl.length ? '' : '<p class="mu">Zapisz, ile masz kur. Portal policzy nieśność ze zbiorów jaj.</p>'}${flockForm(null)}</section>`;
+}
+
+// ---------- pasza: magazyn, receptury, mieszalnia ----------
+const FCAT = {grain: 'Zboże', protein: 'Białkowe', mineral: 'Mineralne', premix: 'Premiks', additive: 'Dodatek', other: 'Inne'};
+const SEASONS = {all: 'Cały rok', summer: 'Lato', winter: 'Zima', spring: 'Wiosna', autumn: 'Jesień'};
+let FEED = {};
+const kg = v => nf(v, 2) + ' kg';
+function recipeRow(i) {
+  return `<div class="row" data-ritem><div><label>Składnik</label><select name="item">${FEED.items.map(x => `<option value="${x.id}"${x.id === i ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+    <div><label>Udział (%)</label><input name="pct" type="number" step="0.1" min="0.1" max="100" required inputmode="decimal"></div>
+    <div><button type="button" class="sm ghost danger" data-act="ritemdel" aria-label="Usuń składnik">Usuń</button></div></div>`;
+}
+async function vFeed() {
+  const f = FEED = await load('/api/my/feed');
+  const nut = n => [n.protein != null && `białko ${nf(n.protein, 1)}%`, n.energy != null && `energia ${nf(n.energy, 0)} kcal/kg`,
+    n.calcium != null && `wapń ${nf(n.calcium, 1)} g/kg`, n.price != null && `${zl(n.price)}/kg`].filter(Boolean).join(' · ');
+  const active = f.recipes.find(r => r.active);
+  setTimeout(() => { const m = $('form[data-f=mix]'); if (m) mixNeed(m); const r = $('form[data-f=recipe]'); if (r) recipeSum(r) });
+  return `<h1>Pasza i mieszalnia</h1><section class="card"><div class="stats">${stat('Składniki w magazynie', f.items.length)}${stat('Wartość zapasu', zl(f.value))}
+    ${stat('Poniżej minimum', f.low, f.low ? 'trzeba dokupić' : 'zapasy w porządku')}</div></section>
+    <section class="card"><h2>⚖️ Mieszalnia</h2>${f.recipes.length ? `<form data-f="mix"><div class="row">
+      <div><label for="mx-r">Receptura</label><select id="mx-r" name="recipe_id">${f.recipes.map(r => `<option value="${r.id}"${r === active ? ' selected' : ''}>${esc(r.name)}${r.active ? ' (w użyciu)' : ''}</option>`).join('')}</select></div>
+      <div><label for="mx-k">Ile kg mieszanki</label><input id="mx-k" name="kg" type="number" step="0.5" min="0.5" value="50" required inputmode="decimal"></div></div>
+      <ul class="list" data-mixneed></ul><label for="mx-n">Uwagi</label><input id="mx-n" name="notes" maxlength="200">
+      <div class="actions"><button class="pri">Mieszaj i odejmij z magazynu</button></div></form>` : '<p class="mu">Najpierw dodaj składniki i recepturę poniżej.</p>'}</section>
+    <section class="card"><h2>🌾 Magazyn</h2><ul class="list" data-feeditems>${f.items.map(i => `<li data-fitem="${i.id}"><div class="tb">
+      <b>${esc(i.name)} · ${nf(i.stock, 1)} ${esc(i.unit)}${i.low ? ' <span class="badge no">poniżej minimum</span>' : ''}</b>
+      <span class="mu">${FCAT[i.category]}${i.min_stock ? ` · minimum ${nf(i.min_stock, 0)} ${esc(i.unit)}` : ''}${i.price ? ` · ${zl(i.price)}/${esc(i.unit)}` : ''}${i.protein != null ? ` · białko ${nf(i.protein, 1)}%` : ''}</span></div>
+      <details><summary>Przyjęcie / spis</summary><form data-f="purchase" data-id="${i.id}"><div class="row">
+        <div><label for="pu-q${i.id}">Przyjęto (${esc(i.unit)})</label><input id="pu-q${i.id}" name="qty" type="number" step="any" min="0.1" required inputmode="decimal"></div>
+        <div><label for="pu-p${i.id}">Cena za ${esc(i.unit)} (zł)</label><input id="pu-p${i.id}" name="price" type="number" step="0.01" min="0" value="${i.price || ''}" inputmode="decimal"></div></div>
+        <label class="chk"><input type="checkbox" name="expense" checked> Zapisz jako wydatek</label><div class="actions"><button class="pri">Przyjmij</button></div></form>
+        <form data-f="fadjust" data-id="${i.id}"><div class="row"><div><label for="fa${i.id}">Stan po spisie (${esc(i.unit)})</label><input id="fa${i.id}" name="stock" type="number" step="any" min="0" value="${i.stock}" inputmode="decimal"></div>
+        <div><button>Zapisz stan</button></div></div></form></details></li>`).join('') || '<li class="mu">Dodaj zboża i dodatki, z których mieszasz paszę.</li>'}</ul>
+      <details><summary>➕ Dodaj składnik</summary><form data-f="fitem"><div class="row"><div><label for="fi-n">Nazwa</label><input id="fi-n" name="name" required maxlength="80" placeholder="np. pszenica"></div>
+        <div><label for="fi-c">Rodzaj</label><select id="fi-c" name="category">${Object.entries(FCAT).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div></div>
+        <div class="row"><div><label for="fi-s">Stan (kg)</label><input id="fi-s" name="stock" type="number" step="any" min="0" value="0" inputmode="decimal"></div>
+        <div><label for="fi-m">Minimalny zapas (kg)</label><input id="fi-m" name="min_stock" type="number" step="any" min="0" value="0" inputmode="decimal"></div>
+        <div><label for="fi-p">Cena za kg (zł)</label><input id="fi-p" name="price" type="number" step="0.01" min="0" inputmode="decimal"></div></div>
+        <div class="row"><div><label for="fi-b">Białko (%)</label><input id="fi-b" name="protein" type="number" step="0.1" min="0" max="100" inputmode="decimal"></div>
+        <div><label for="fi-e">Energia (kcal/kg)</label><input id="fi-e" name="energy" type="number" step="1" min="0" inputmode="decimal"></div>
+        <div><label for="fi-w">Wapń (g/kg)</label><input id="fi-w" name="calcium" type="number" step="0.1" min="0" inputmode="decimal"></div></div>
+        <div class="actions"><button class="pri">Dodaj składnik</button></div></form></details></section>
+    <section class="card"><h2>📜 Receptury</h2><ul class="list">${f.recipes.map(r => `<li><div class="tb"><b>${esc(r.name)}${r.active ? ' <span class="pill">w użyciu</span>' : ''}</b>
+      <span class="mu">${SEASONS[r.season]} · ${r.items.map(x => `${esc(x.name)} ${nf(x.percent, 1)}%`).join(', ')}</span>
+      <span class="mu">${nut(r.nutrition)}</span>${Math.abs(r.total_percent - 100) > 0.5 ? `<span class="no">⚠️ Udziały dają ${nf(r.total_percent, 1)}%, popraw recepturę</span>` : ''}</div>
+      <div class="seg">${r.active ? '' : `<button class="sm" data-act="recipeuse" data-id="${r.id}">Używaj</button>`}<button class="sm ghost danger" data-act="recipedel" data-id="${r.id}">Usuń</button></div></li>`).join('')
+      || '<li class="mu">Brak receptur.</li>'}</ul>
+      ${f.items.length ? `<details><summary>➕ Nowa receptura</summary><form data-f="recipe"><div class="row"><div><label for="re-n">Nazwa</label><input id="re-n" name="name" required maxlength="80" placeholder="np. nioski lato"></div>
+        <div><label for="re-s">Sezon</label><select id="re-s" name="season">${Object.entries(SEASONS).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div></div>
+        <div data-ritems>${recipeRow(f.items[0].id)}</div><div class="actions"><button type="button" class="sm" data-act="ritemadd">+ Składnik</button></div>
+        <p class="mu" data-rsum aria-live="polite"></p><div class="actions"><button class="pri">Zapisz recepturę</button></div></form></details>` : ''}</section>
+    <section class="card"><h2>🧾 Ruchy w magazynie</h2><ul class="list log">${f.moves.slice(0, 20).map(m => `<li><time datetime="${esc(m.at)}">${day(m.at)}</time>
+      <div class="tb"><b>${esc(m.name)}: ${m.qty > 0 ? '+' : ''}${nf(m.qty, 2)}</b><span class="mu">${{purchase: 'przyjęcie', mix: 'mieszanie', adjust: 'spis'}[m.kind] || m.kind}${m.note ? ' · ' + esc(m.note) : ''}</span></div></li>`).join('')
+      || '<li class="mu">Brak ruchów.</li>'}</ul></section>`;
+}
+function mixNeed(f) {
+  const r = FEED.recipes.find(x => x.id === +f.elements.recipe_id.value), k = +f.elements.kg.value || 0;
+  $('[data-mixneed]', f).innerHTML = r ? r.items.map(x => { const n = k * x.percent / 100, ok = n <= x.stock + 1e-9;
+    return `<li><div class="tb"><b>${esc(x.name)}: ${kg(n)}</b><span class="${ok ? 'mu' : 'no'}">w magazynie ${kg(x.stock)}${ok ? '' : ' · za mało'}</span></div></li>` }).join('') : '';
+}
+function recipeSum(f) {
+  const t = $$('[name=pct]', f).reduce((a, x) => a + (+x.value || 0), 0);
+  $('[data-rsum]', f).innerHTML = Math.abs(t - 100) > 0.5 ? `<b class="no">Razem ${nf(t, 1)}% (musi być 100%)</b>` : `Razem ${nf(t, 1)}% ✓`;
 }
 
 // ---------- wydatki i wyposażenie ----------
@@ -604,9 +704,16 @@ async function vKb(arg) {
     <div class="seg" role="group" aria-label="Kategorie" style="margin:.8rem 0">${['', ...cats].map(c => `<button data-act="kbcat" data-v="${esc(c)}" aria-pressed="${c === kbCat}">${c ? esc(c) : 'Wszystkie'}</button>`).join('')}</div>
     <div id="kblist"></div>`, after: kbSearch};
 }
-function vSettings() {
-  const t = theme();
-  return `<h1>Ustawienia</h1><section class="card"><h2>Wygląd</h2><p class="mu">Automatyczny dopasowuje się do ustawień telefonu.</p><div class="seg" role="group" aria-label="Motyw">
+async function vSettings() {
+  const t = theme(), st = await load('/api/my/settings');
+  return `<h1>Ustawienia</h1><section class="card"><h2>⏰ Przypomnienie o zbiorze</h2>
+    <p class="mu">Jeśli do tej godziny nie wpiszesz zbioru, portal przypomni${st.mail_configured ? ` e-mailem na ${esc(st.email)} i` : ''} na ekranie Start.</p>
+    <form data-f="settings"><label class="chk"><input type="checkbox" name="remind_on" ${st.remind_on ? 'checked' : ''}> Przypominaj o wpisaniu zbioru</label>
+    <label for="st-h">Godzina</label><select id="st-h" name="remind_hour">${Array.from({length: 19}, (_, i) => i + 5).map(h => `<option value="${h}"${h === st.remind_hour ? ' selected' : ''}>${h}:00</option>`).join('')}</select>
+    <div class="actions"><button class="pri">Zapisz</button></div></form></section>
+    <section class="card"><h2>📲 Aplikacja</h2><p class="mu">${standalone() ? 'Portal jest zainstalowany jako aplikacja.' : 'Dodaj portal na ekran telefonu lub komputera: otworzy się jak zwykła aplikacja, bez paska przeglądarki.'}</p>
+    ${standalone() ? '' : '<div class="actions"><button class="pri" data-act="install">Dodaj jako aplikację</button></div><p class="mu" data-installhelp hidden></p>'}</section>
+    <section class="card"><h2>Wygląd</h2><p class="mu">Automatyczny dopasowuje się do ustawień telefonu.</p><div class="seg" role="group" aria-label="Motyw">
     ${Object.entries(THEMES).map(([k, n]) => `<button data-act="settheme" data-v="${k}" aria-pressed="${k === t}">${n[0].toUpperCase() + n.slice(1)}</button>`).join('')}</div></section>
     <section class="card"><h2>Konto</h2><p>Zalogowano jako <b>${esc(me.email)}</b></p><div class="actions"><button data-act="logout">Wyloguj</button></div></section>`;
 }
@@ -831,7 +938,7 @@ function unhover(e) {
 }
 
 // ---------- administrator ----------
-const adminTabs = cur => `<div class="tabs" role="navigation" aria-label="Sekcje administratora">${[['admin', 'Sterowniki'], ['admin-kb', 'Baza wiedzy'],
+const adminTabs = cur => `<div class="tabs" role="navigation" aria-label="Sekcje administratora">${[['admin', 'Sterowniki'], ['admin-kb', 'Baza wiedzy'], ['admin-import', 'Import z e-kurnika'],
   ['admin-cfg', 'Konfiguracja'], ['admin-tools', 'Narzędzia']].map(([k, t]) => `<button data-act="go" data-v="${k}"${k === cur ? ' aria-current="page"' : ''}>${t}</button>`).join('')}</div>`;
 const MD_HELP = `<details><summary>Jak formatować tekst</summary><pre>## Nagłówek        ### Mniejszy nagłówek
 **pogrubienie**    *kursywa*    \`kod\`
@@ -839,6 +946,49 @@ const MD_HELP = `<details><summary>Jak formatować tekst</summary><pre>## Nagł�
 > ramka z uwagą
 [tekst linku](https://adres.pl)     [link w portalu](#/sterowanie)
 ![opis obrazka](https://adres.pl/obraz.jpg)</pre></details>`;
+const SENS = {'': 'Brak czujnika', sht3x: 'SHT3x (temperatura i wilgotność, I²C)', dht22: 'DHT22 (temperatura i wilgotność)', ds18b20: 'DS18B20 (temperatura)'};
+function fwBox(d) {
+  const p = d.sensor_pins || {}, pin = (n, l) => `<div data-pin="${n}"><label for="fp${n}${d.id}">${l}</label><input id="fp${n}${d.id}" name="${n}" type="number" min="0" max="48" value="${p[n] ?? ''}" inputmode="numeric"></div>`;
+  return `<details data-fw="${d.id}"><summary>🛠️ Firmware ESPHome (${d.chip})</summary>
+    <form data-f="fwset" data-id="${d.id}"><div class="row"><div><label for="fws${d.id}">Wi-Fi w kurniku: nazwa</label><input id="fws${d.id}" name="wifi_ssid" value="${esc(d.wifi_ssid)}" maxlength="32"></div>
+      <div><label for="fwp${d.id}">Wi-Fi: hasło</label><input id="fwp${d.id}" name="wifi_password" type="password" maxlength="63" autocomplete="new-password" placeholder="${d.wifi_set ? 'zapisane, wpisz aby zmienić' : ''}"></div></div>
+      <div class="row"><div><label for="fwc${d.id}">Czujnik</label><select id="fwc${d.id}" name="sensor">${Object.entries(SENS).map(([k, t]) => `<option value="${k}"${k === d.sensor ? ' selected' : ''}>${t}</option>`).join('')}</select></div>
+      ${pin('sda', 'SDA (GPIO)')}${pin('scl', 'SCL (GPIO)')}${pin('pin', 'Pin danych (GPIO)')}</div>
+      <div class="actions"><button>Zapisz ustawienia</button></div></form>
+    <div class="actions"><button class="pri" data-act="fw" data-v="compile" data-id="${d.id}">Kompiluj firmware</button>
+      <button data-act="fw" data-v="upload" data-id="${d.id}"${d.online && d.tunnel === 'wg' ? '' : ' disabled title="Sterownik musi być połączony przez WireGuard"'}>Wgraj przez sieć (OTA)</button></div>
+    <div data-fwusb="${d.id}"></div><p class="mu" data-fwstate="${d.id}">${d.fw_job ? 'Sprawdzam ostatnią kompilację…' : 'Pierwsze wgranie: przez USB z komputera (Chrome lub Edge). Kolejne: przez sieć.'}</p>
+    <pre data-fwlog="${d.id}" hidden></pre></details>`;
+}
+function fwPins(f) {
+  const s = f.elements.sensor.value;
+  $$('[data-pin]', f).forEach(x => { x.hidden = !(s === 'sht3x' ? ['sda', 'scl'] : s ? ['pin'] : []).includes(x.dataset.pin) });
+}
+let ewt = null;
+async function fwPoll(id, again) {
+  const r = await api('GET', `/api/admin/devices/${id}/firmware`), st = $(`[data-fwstate="${id}"]`), log = $(`[data-fwlog="${id}"]`), usb = $(`[data-fwusb="${id}"]`);
+  if (!st) return;
+  if (!r.ok) { st.textContent = errMsg(r); return }
+  const s = r.data;
+  if (s.status === 'none') return;
+  st.textContent = {queued: '⏳ W kolejce…', running: '⏳ Kompilacja trwa (pierwsza nawet 10 minut)…', ok: s.action === 'upload' ? '✅ Wgrano przez sieć' : '✅ Firmware gotowe',
+    error: '❌ Błąd: zobacz log poniżej'}[s.status] || s.status;
+  if (s.log) { log.textContent = s.log; log.hidden = false; log.scrollTop = log.scrollHeight }
+  if (s.status === 'ok' && s.binary && !usb.innerHTML) {
+    ewt = ewt || import('https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module').catch(() => null);
+    usb.innerHTML = `<div class="actions"><esp-web-install-button manifest="/api/admin/devices/${id}/manifest.json"><button slot="activate" class="pri">🔌 Wgraj przez USB</button>
+      <span slot="unsupported" class="mu">Wgrywanie przez USB działa w Chrome lub Edge na komputerze.</span></esp-web-install-button>
+      <a class="btn" href="/api/admin/devices/${id}/firmware.bin" download>Pobierz plik .bin</a></div>`;
+  }
+  if (again && ['queued', 'running'].includes(s.status)) setTimeout(() => fwPoll(id, true), 2000);
+}
+async function vAdminImport() {
+  return '<h1>Administrator</h1>' + adminTabs('admin-import') + `<section class="card"><h2>📥 Import z e-kurnika</h2>
+    <p class="mu">Wgraj kopię bazy e-kurnika (plik .db z kopii zapasowej). Dane trafią na wybrane konto rolnika: klienci z saldami, sprzedaż, zbiory,
+    stada, wydatki, wyposażenie, pasza i receptury. Jeśli konta nie ma, zostanie założone.</p>
+    <form data-f="ekupload"><label for="ek-f">Plik kopii (.db)</label><input id="ek-f" name="file" type="file" accept=".db,.sqlite,application/octet-stream" required>
+    <div class="actions"><button class="pri">Wgraj i sprawdź</button></div></form><div data-ekstep></div></section>`;
+}
 async function vAdminKb(arg) {
   let h = '<h1>Administrator</h1>' + adminTabs('admin-kb');
   if (!arg) {
@@ -859,6 +1009,7 @@ async function vAdminKb(arg) {
     <h2>Podgląd</h2><article class="card prose" data-kbpreview><h1>${esc(a.title) || 'Tytuł'}</h1>${md(a.body)}</article>`;
 }
 async function vAdmin(tab) {
+  setTimeout(() => { $$('form[data-f=fwset]').forEach(fwPins); $$('[data-fw]').forEach(x => fwPoll(x.dataset.fw, true)) });
   let h = '<h1>Administrator</h1>' + adminTabs(tab === 'dev' ? 'admin' : 'admin-' + tab);
   if (tab === 'dev') {
     const [dv, fm, ct] = await Promise.all([load('/api/admin/devices'), load('/api/farms'), load('/api/catalog')]);
@@ -871,6 +1022,7 @@ async function vAdmin(tab) {
       <div><button data-act="assign" data-id="${d.id}">Przypisz do farmy</button></div></div>
       <div class="actions"><button class="pri" data-act="stage" data-id="${d.id}" data-s="${d.stage}" ${d.stage >= 3 ? 'disabled' : ''}>${d.stage >= 3 ? 'Wszystkie etapy zakończone'
       : 'Następny etap: ' + STAGES[d.stage + 1]}</button></div>
+      ${d.firmware ? fwBox(d) : `<p class="mu">Firmware: ${d.model === 'shp' ? 'Shelly ma własny firmware (ustawienia MQTT w konfiguracji).' : 'Waveshare: uzupełnij piny Ethernet w konfiguracji, potem wgraj ręcznie.'}</p>`}
       <details><summary>Dane techniczne</summary><p>Połączenie: ${esc(d.tunnel)} · adres VPN: ${esc(d.ip)} · dostawa: ${esc(d.addr)}</p><p>Klucz API: <code>${esc(d.api_key)}</code></p>
       <p class="mu">Instalacja ESPHome potrzebuje konfiguracji (widzi ją też rolnik) i pliku secrets.yaml z kluczami WireGuard (tylko tutaj).
       Hasło API i OTA są losowane przy każdym pobraniu: wgraj oba pliki razem.</p>
@@ -918,6 +1070,14 @@ const ACT = {
     const r = await api('GET', `/api/admin/devices/${b.dataset.id}/secrets`), pre = $(`[data-yaml="s${b.dataset.id}"]`);
     pre.textContent = typeof r.data === 'string' && r.ok ? r.data : errMsg(r); pre.hidden = false;
   },
+  async install(b) {
+    if (installEvt) { installEvt.prompt(); const c = await installEvt.userChoice; installEvt = null; if (c.outcome === 'accepted') toast('Dodano aplikację'); return }
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent), help = b.closest('section').querySelector('[data-installhelp]');
+    help.textContent = ios ? 'iPhone / iPad: w Safari stuknij „Udostępnij” (kwadrat ze strzałką), potem „Do ekranu początkowego”.'
+      : 'W menu przeglądarki (⋮) wybierz „Zainstaluj aplikację” albo „Dodaj do ekranu głównego”.';
+    help.hidden = false;
+  },
+  dismiss(b) { try { localStorage.setItem('zn-hide-' + b.dataset.v, '1') } catch (e) {} b.closest('section').remove() },
   async delclient(b) { if (done(await api('DELETE', `/api/my/clients/${b.dataset.id}`), 'Klient usunięty z kartoteki')) go('klienci') },
   async settle(b) {
     const f = b.closest('form'), r = await api('POST', `/api/my/clients/${f.dataset.id}/payments`, {settle: true, method: f.elements.method.value, note: f.elements.note.value});
@@ -926,11 +1086,21 @@ const ACT = {
   eggsqty(b) { const f = b.closest('form'); f.elements.eggs.value = b.dataset.v; saleSync(f) },
   paidall(b) { const f = b.closest('form'); f.elements.paid.value = (+f.dataset.total).toFixed(2); saleSync(f) },
   paidzero(b) { const f = b.closest('form'); f.elements.paid.value = (+f.dataset.total + +f.dataset.debt).toFixed(2); saleSync(f) },
+  ritemadd(b) { const box = b.closest('form').querySelector('[data-ritems]'); box.insertAdjacentHTML('beforeend', recipeRow(FEED.items[0].id)); recipeSum(b.closest('form')) },
+  ritemdel(b) { const f = b.closest('form'); if ($$('[data-ritem]', f).length > 1) b.closest('[data-ritem]').remove(); recipeSum(f) },
+  async recipeuse(b) { if (done(await api('PATCH', `/api/my/feed/recipes/${b.dataset.id}`, {active: true}), 'Receptura w użyciu')) await refresh() },
+  async recipedel(b) { if (done(await api('DELETE', `/api/my/feed/recipes/${b.dataset.id}`), 'Usunięto recepturę')) await refresh() },
   async subskip(b) { if (done(await api('POST', `/api/my/subscriptions/${b.dataset.id}/skip`), 'Pominięto, przesunięto na kolejny termin')) await refresh() },
   async subtoggle(b) { if (done(await api('PATCH', `/api/my/subscriptions/${b.dataset.id}`, {active: b.getAttribute('aria-pressed') !== 'true'}), 'Zapisano')) await refresh() },
   async subdel(b) { if (done(await api('DELETE', `/api/my/subscriptions/${b.dataset.id}`), 'Usunięto zamówienie cykliczne')) await refresh() },
   async expdays(b) { expDays = +b.dataset.v; await refresh() },
   async expdel(b) { if (done(await api('DELETE', `/api/my/expenses/${b.dataset.id}`), 'Usunięto wydatek')) await refresh() },
+  async fw(b) {
+    const r = await api('POST', `/api/admin/devices/${b.dataset.id}/firmware`, {action: b.dataset.v});
+    if (!done(r, b.dataset.v === 'upload' ? 'Kompilacja i wgranie przez sieć ruszyły' : 'Kompilacja ruszyła')) return;
+    $(`[data-fwusb="${b.dataset.id}"]`).innerHTML = '';
+    fwPoll(b.dataset.id, true);
+  },
   async equipdel(b) { if (done(await api('DELETE', `/api/my/equipment/${b.dataset.id}`), 'Usunięto')) await refresh() },
   async delsale(b) {
     if (!done(await api('DELETE', `/api/my/sales/${b.dataset.id}`), 'Sprzedaż usunięta: stan jaj i saldo klienta cofnięte')) return;
@@ -973,8 +1143,20 @@ const FORMS = {
   },
   login: auth, register: auth,
   async collect(f, v) {
-    const n = num(v.eggs), d = num(v.damaged) || 0, r = await api('POST', '/api/my/eggs', {kind: 'collect', eggs: n, damaged: d, note: v.note});
-    await eggsReload(r.data && r.data.stock && `Dodano ${n - d} dobrych jaj${d ? ` (${d} brudnych/uszkodzonych odłożonych)` : ''}. W magazynie: ${r.data.stock.eggs} szt.`, r);
+    const n = num(v.eggs), r = await api('POST', '/api/my/eggs', {kind: 'collect', eggs: n, note: v.note});
+    await eggsReload(r.data && r.data.stock && `Zapisano zbiór: ${n} szt. Do sortowania: ${r.data.stock.unsorted} szt.`, r);
+  },
+  async sort(f, v) {
+    const b = {kind: 'sort', good: num(v.good) || 0, dirty: num(v.dirty) || 0, damaged: num(v.damaged) || 0}, r = await api('POST', '/api/my/eggs', b);
+    await eggsReload(r.data && r.data.stock && `Posortowano: ${b.good} dobrych do magazynu${b.dirty ? `, ${b.dirty} brudnych` : ''}${b.damaged ? `, ${b.damaged} uszkodzonych` : ''}. W magazynie: ${r.data.stock.eggs} szt.`, r);
+  },
+  async gift(f, v) {
+    const r = await api('POST', '/api/my/eggs', {kind: 'gift', eggs: num(v.eggs), who: v.who, note: v.note});
+    await eggsReload(r.data && r.data.stock && `Zapisano: ${v.eggs} szt. dla: ${v.who}. Wolne: ${r.data.stock.free} szt.`, r);
+  },
+  async settings(f, v) {
+    const r = await api('PUT', '/api/my/settings', {remind_on: 'remind_on' in v, remind_hour: num(v.remind_hour)});
+    done(r, r.data && (r.data.remind_on ? `Przypomnienie o ${r.data.remind_hour}:00` : 'Przypomnienie wyłączone'));
   },
   async alloc(f, v) {
     const r = await api('POST', '/api/my/eggs/allocation', {offer_packs: num(v.offer_packs), reserved: num(v.reserved)});
@@ -1009,6 +1191,24 @@ const FORMS = {
     if (!done(r, r.data && `Zapisano: ${zl(r.data.total)}` + (r.data.balance != null ? ` · saldo klienta: ${balInfo(r.data.balance).long}` : ''))) return;
     order || sub ? go('zamowienia') : await refresh();
   },
+  async mix(f, v) {
+    const r = await api('POST', '/api/my/feed/mix', {recipe_id: num(v.recipe_id), kg: num(v.kg), notes: v.notes});
+    if (done(r, r.data && `Wymieszano ${nf(r.data.kg, 1)} kg (koszt składników ${zl(r.data.cost)})`)) await refresh();
+  },
+  async purchase(f, v) {
+    const r = await api('POST', `/api/my/feed/items/${f.dataset.id}/purchase`, {qty: num(v.qty), price: num(v.price) || 0, expense: 'expense' in v});
+    if (done(r, 'Przyjęto do magazynu' + ('expense' in v ? ' i zapisano wydatek' : ''))) await refresh();
+  },
+  async fadjust(f, v) { if (done(await api('POST', `/api/my/feed/items/${f.dataset.id}/adjust`, {stock: num(v.stock)}), 'Zapisano stan po spisie')) await refresh() },
+  async fitem(f, v) {
+    const b = {name: v.name, category: v.category, stock: num(v.stock) || 0, min_stock: num(v.min_stock) || 0, price: num(v.price) || 0,
+      protein: num(v.protein), energy: num(v.energy), calcium: num(v.calcium)};
+    if (done(await api('POST', '/api/my/feed/items', b), 'Dodano składnik')) await refresh();
+  },
+  async recipe(f, v) {
+    const items = $$('[data-ritem]', f).map(r => ({item_id: +r.querySelector('[name=item]').value, percent: num(r.querySelector('[name=pct]').value)}));
+    if (done(await api('POST', '/api/my/feed/recipes', {name: v.name, season: v.season, items}), 'Zapisano recepturę')) await refresh();
+  },
   async sub(f, v) {
     const r = await api('POST', '/api/my/subscriptions', {client_id: num(v.client_id), eggs: num(v.eggs), every_days: num(v.every_days), next_date: v.next_date, method: v.method, notes: v.notes});
     if (done(r, 'Dodano zamówienie cykliczne')) await refresh();
@@ -1019,6 +1219,32 @@ const FORMS = {
     if (v.total !== '') b.total = num(v.total);
     const r = await api('POST', '/api/my/expenses', b);
     if (done(r, r.data && `Zapisano wydatek: ${zl(r.data.total)}`)) await refresh();
+  },
+  async fwset(f, v) {
+    const b = {wifi_ssid: v.wifi_ssid, sensor: v.sensor, sensor_pins: {sda: num(v.sda), scl: num(v.scl), pin: num(v.pin)}};
+    if (v.wifi_password) b.wifi_password = v.wifi_password;
+    if (done(await api('PATCH', `/api/admin/devices/${f.dataset.id}`, b), 'Zapisano ustawienia firmware')) f.elements.wifi_password.value = '';
+  },
+  async ekupload(f) {
+    const fd = new FormData(f);
+    const r = await fetch('/api/admin/ekurnik/upload', {method: 'POST', headers: {'X-Requested-With': 'zniesione'}, body: fd});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) return toast(d.error || 'Nie udało się wgrać pliku', true);
+    const box = $('[data-ekstep]'), best = d.farms.slice().sort((a, b) => b.clients - a.clients || b.days - a.days)[0];
+    box.innerHTML = `<form data-f="ekimport" data-token="${d.token}"><fieldset><legend>Które gospodarstwo z e-kurnika?</legend>${d.farms.map(x =>
+      `<label class="chk"><input type="radio" name="gid" value="${x.gid}"${x === best ? ' checked' : ''}> ${esc(x.name)} · klientów: ${x.clients}, dni zbiorów: ${x.days}</label>`).join('')}</fieldset>
+      <div class="row"><div><label for="ek-e">E-mail konta rolnika</label><input id="ek-e" name="email" type="email" required placeholder="np. rolnik@gmail.com"></div>
+      <div><label for="ek-p">Hasło (tylko dla nowego konta)</label><input id="ek-p" name="password" type="password" minlength="8" autocomplete="new-password"></div></div>
+      <div class="actions"><button class="pri">Importuj</button></div></form>`;
+    toast('Plik sprawdzony: wybierz gospodarstwo');
+  },
+  async ekimport(f, v) {
+    const b = {token: f.dataset.token, gid: num(v.gid), email: v.email};
+    if (v.password) b.password = v.password;
+    const r = await api('POST', '/api/admin/ekurnik/import', b);
+    if (!done(r, r.data && r.data.counts && `Zaimportowano na konto ${r.data.email}${r.data.created ? ' (nowe konto)' : ''}`)) return;
+    $('[data-ekstep]').innerHTML = `<div class="alert" style="background:var(--okbg);border-color:var(--ok)"><b>✅ Gotowe: ${esc(r.data.email)}${r.data.created ? ' (konto założone)' : ''}</b>
+      ${Object.entries(r.data.counts).map(([k, n]) => `${esc(k)}: ${n}`).join(' · ')}</div>`;
   },
   async equip(f, v) {
     const id = f.dataset.id, r = await api(id ? 'PATCH' : 'POST', `/api/my/equipment${id ? '/' + id : ''}`, {...v, price: num(v.price) || 0});
@@ -1075,6 +1301,9 @@ document.addEventListener('input', async e => {
   }
   if (t.form && t.form.dataset.f === 'sale') return saleSync(t.form);
   if (t.form && t.form.dataset.f === 'alloc') return allocSum(t.form);
+  if (t.form && t.form.dataset.f === 'sort') return sortSum(t.form);
+  if (t.form && t.form.dataset.f === 'mix') return mixNeed(t.form);
+  if (t.form && t.form.dataset.f === 'recipe') return recipeSum(t.form);
   if (t.form && t.form.dataset.f === 'payment' && t.name === 'amount') return payPreview(t.form);
   if (t.id === 'clq') {
     const q = t.value, r = await api('GET', '/api/my/clients?q=' + encodeURIComponent(q));
@@ -1092,6 +1321,8 @@ function payPreview(f) {
 document.addEventListener('change', async e => {
   const t = e.target, f = t.form;
   if (f && f.dataset.f === 'sched') syncSched(f);
+  if (f && f.dataset.f === 'mix') mixNeed(f);
+  if (f && f.dataset.f === 'fwset') fwPins(f);
   if (f && f.dataset.f === 'sale') saleSync(f, t.name === 'client_id');
   if (f && f.dataset.f === 'devorder' && t.name === 'model') $('[data-cheap]', f).hidden = !/najtańszy/.test(t.selectedOptions[0] ? t.selectedOptions[0].textContent : '');
   if (t.classList.contains('nm')) {

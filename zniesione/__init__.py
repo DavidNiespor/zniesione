@@ -1020,6 +1020,16 @@ def create_app(test_config=None):
             q("INSERT INTO eggs(farm_id,kind,eggs,at) VALUES(1,'collect',?,?)", n, at)
             q("INSERT INTO eggs(farm_id,kind,eggs,dirty,packs,at) VALUES(1,'sort',?,?,?,?)", n - dmg, dmg, (n - dmg) // 10, at)
         q("UPDATE farms SET unsorted=24 WHERE id=1")  # dzisiejszy zbiór czeka na sortowanie
+        items = {}
+        for name, cat_, stock, mn, price, prot, en, ca in (("Pszenica", "grain", 300, 100, 1.1, 11.5, 2900, 0.5),
+                                                          ("Kukurydza", "grain", 200, 50, 1.2, 9, 3350, 0.2),
+                                                          ("Śruta sojowa", "protein", 60, 25, 2.4, 46, 2400, 3),
+                                                          ("Kreda pastewna", "mineral", 30, 10, 0.6, None, None, 370)):
+            items[name] = q("INSERT INTO feed_items(farm_id,name,category,stock,min_stock,price,protein,energy,calcium) VALUES(1,?,?,?,?,?,?,?,?)",
+                            name, cat_, stock, mn, price, prot, en, ca).lastrowid
+        rid = q("INSERT INTO recipes(farm_id,name,season,active) VALUES(1,'Nioski cały rok','all',1)").lastrowid
+        for name, pct in (("Pszenica", 50), ("Kukurydza", 25), ("Śruta sojowa", 18), ("Kreda pastewna", 7)):
+            q("INSERT INTO recipe_items(recipe_id,item_id,percent) VALUES(?,?,?)", rid, items[name], pct)
         q("INSERT INTO eggs(farm_id,kind,eggs,at) VALUES(1,'collect',24,?)", (datetime.now() - timedelta(hours=1)).isoformat())
         q("UPDATE farms SET eggs=stock*10+60, reserved=30 WHERE id=1")  # magazyn: 12 opak. w sklepie, 30 szt. rezerwy, 30 wolnych
         for name, phone, price, history in (  # kartoteka: dług, nadpłata, stały klient z własną ceną
