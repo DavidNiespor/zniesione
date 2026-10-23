@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS archive_days(id INTEGER PRIMARY KEY, farm_id INTEGER 
   broody INTEGER NOT NULL DEFAULT 0, eggs INTEGER NOT NULL DEFAULT 0, logged INTEGER NOT NULL DEFAULT 1, losses INTEGER NOT NULL DEFAULT 0,
   stock INTEGER NOT NULL DEFAULT 0, orders INTEGER NOT NULL DEFAULT 0, home INTEGER NOT NULL DEFAULT 0, sales TEXT NOT NULL DEFAULT '[]',
   revenue REAL NOT NULL DEFAULT 0, expense REAL NOT NULL DEFAULT 0, expense_type TEXT NOT NULL DEFAULT '', paid_out INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS chores(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, at TEXT NOT NULL,
+  amount REAL, note TEXT NOT NULL DEFAULT '', user_id INTEGER);
 CREATE TABLE IF NOT EXISTS buildings(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, name TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS kb(id INTEGER PRIMARY KEY, title TEXT NOT NULL, category TEXT NOT NULL DEFAULT '', body TEXT NOT NULL,
   published INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL, updated TEXT NOT NULL);
@@ -88,6 +90,7 @@ COLUMNS = [
     ("eggs", "pool", "TEXT NOT NULL DEFAULT ''"), ("eggs", "building_id", "INTEGER"),
     ("flocks", "building_id", "INTEGER"), ("devices", "building_id", "INTEGER"),
     ("orders", "due_date", "TEXT NOT NULL DEFAULT ''"),
+    ("farms", "chores", "TEXT NOT NULL DEFAULT ''"), ("farms", "chores_amounts", "INTEGER NOT NULL DEFAULT 1"),  # lista obowiązków (pusta = wyłączona)
     ("farms", "archive_name", "TEXT NOT NULL DEFAULT ''"), ("farms", "archive_at", "TEXT NOT NULL DEFAULT ''"),
     ("eggs", "user_id", "INTEGER"), ("sales", "user_id", "INTEGER"), ("ledger", "user_id", "INTEGER"),
     ("feed_moves", "user_id", "INTEGER"), ("mixes", "user_id", "INTEGER"), ("expenses", "user_id", "INTEGER"),
@@ -98,7 +101,7 @@ COLUMNS = [
 ]
 
 
-AUTHORED = ("eggs", "sales", "ledger", "feed_moves", "mixes", "expenses")  # wpisy z informacją, kto je zrobił
+AUTHORED = ("eggs", "sales", "ledger", "feed_moves", "mixes", "expenses", "chores")  # wpisy z informacją, kto je zrobił
 
 
 def set_user(db, uid):

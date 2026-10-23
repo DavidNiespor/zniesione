@@ -297,6 +297,19 @@ async function page() {
   p.setv(stf, "remind_hour", "20"); p.submit(stf);
   ok(await p.wait(() => /Przypomnienie o 20:00/.test(p.toast())), "zmiana godziny przypomnienia");
   ok(p.btn("Dodaj jako aplikację"), "ustawienia: przycisk instalacji aplikacji");
+  const cc = p.$("form[data-f=chorecfg]");
+  ["k_feed", "k_water", "k_eggs", "k_hens"].forEach((n) => { cc.elements[n].checked = true; });
+  p.submit(cc);
+  ok(await p.wait(() => /Lista obowiązków jest na ekranie Start/.test(p.toast())), "ustawienia: włączenie listy obowiązków");
+  await p.nav("start");
+  ok(await p.wait(() => p.$("[data-chores]") && p.$$("[data-chore]").length === 4), "Start: lista obowiązków (pasza, woda, jaja, kury)");
+  const chf = p.$("form[data-f=chore][data-k=feed]"); p.setv(chf, "amount", "4.5"); p.submit(chf);
+  ok(await p.wait(() => /Pasza uzupełniona: 4,5 kg/.test(p.toast()) && /✓ \d\d:\d\d .*4,5 kg/.test(p.$("[data-chore=feed]").textContent)),
+    "odhaczenie paszy: godzina, kto i ilość");
+  p.click(p.$("[data-chore=feed] [data-act=choreundo]"));
+  ok(await p.wait(() => /Cofnięto/.test(p.toast()) && /Jeszcze nie/.test(p.$("[data-chore=feed]").textContent)), "cofnięcie odhaczenia");
+  await p.nav("ustawienia");
+  await p.wait(() => p.$("form[data-f=member]"));
   const tm = p.$("form[data-f=member]"); p.setv(tm, "name", "Ola"); p.setv(tm, "email", "ola@zniesione.test"); p.setv(tm, "password", "Ola123456!"); p.submit(tm);
   ok(await p.wait(() => /Dodano: Ola/.test(p.toast()) && p.$("[data-team]") && /ola@zniesione\.test/.test(p.$("[data-team]").textContent)), "zespół: właściciel dodaje osobę z osobnym loginem");
   ok(p.$("a[href='/api/my/export.zip']"), "ustawienia: pobranie kopii danych farmy");

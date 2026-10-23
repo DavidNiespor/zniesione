@@ -11,7 +11,7 @@ from .farmbook import valid_date
 
 # tabele farmy w eksporcie (wszystkie mają farm_id); hasła i klucze sterowników nie trafiają do eksportu
 EXPORT = ("clients", "sales", "ledger", "eggs", "subscriptions", "orders", "expenses", "equipment", "flocks", "buildings",
-          "feed_items", "feed_moves", "recipes", "mixes")
+          "feed_items", "feed_moves", "recipes", "mixes", "chores")
 
 
 def months_back(d, n):
@@ -86,7 +86,11 @@ def register(app, need, q, commit, body, err):
         start = date.today() - timedelta(days=n - 1)
         since = start.isoformat()
         birds = q("SELECT COALESCE(SUM(birds),0) FROM flocks WHERE farm_id=?", fid).fetchone()[0]
-        daily = {(start + timedelta(days=i)).isoformat(): dict(collected=0, sold=0, given=0, lost=0, revenue=0.0) for i in range(n)}
+        daily = {(start + timedelta(days=i)).isoformat(): dict(collected=0, sold=0, given=0, lost=0, revenue=0.0, feed=None, water=None) for i in range(n)}
+        for r in q("SELECT day, kind, SUM(amount) a FROM chores WHERE farm_id=? AND day>=? AND kind IN ('feed','water') AND amount IS NOT NULL "
+                   "GROUP BY day, kind", fid, since):  # nasypana pasza (kg) i nalana woda (l) z listy obowiązków
+            if r["day"] in daily:
+                daily[r["day"]][r["kind"]] = round(r["a"], 2)
         for r in q("SELECT substr(at,1,10) d, kind, SUM(eggs) e FROM eggs WHERE farm_id=? AND at>=? AND kind IN ('collect','gift','loss') "
                    "GROUP BY d, kind", fid, since):
             if r["d"] in daily:
@@ -128,6 +132,11 @@ def register(app, need, q, commit, body, err):
             if r["user_id"] in people:
                 people[r["user_id"]].update(sales=r["n"], sold=r["e"])
         tot = {k: sum(s[k] for s in series) for k in ("collected", "sold", "given", "lost")}
+        for k in ("feed", "water"):
+            v = [s[k] for s in series if s[k] is not None]
+            tot[k], tot[k + "_days"] = round(sum(v), 2), len(v)
+        tot["feed_per_hen_g"] = round(tot["feed"] * 1000 / (birds * tot["feed_days"]), 0) if birds and tot["feed_days"] else None
+        tot["water_per_hen_ml"] = round(tot["water"] * 1000 / (birds * tot["water_days"]), 0) if birds and tot["water_days"] else None
         return jsonify(days=n, birds=birds, daily=series, monthly=list(monthly.values()),
                        methods={k: round(v, 2) for k, v in methods.items() if abs(v) > 0.005}, top_clients=top,
                        people=[p for p in people.values() if p["collected"] or p["sorted"] or p["sales"]],

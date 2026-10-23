@@ -230,9 +230,40 @@ async function tickLive() {
 }
 
 // ---------- Start ----------
+// ---------- codzienne obowiązki (opcjonalne): pasza, woda, jaja, kury ----------
+const CHORE = {feed: ['🌾', 'Pasza uzupełniona', 'Nasypane', 'kg'], water: ['💧', 'Woda uzupełniona', 'Nalane', 'l'],
+  eggs: ['🥚', 'Jajka zebrane', 'Wpisz zbiór', 'szt.'], hens: ['🐔', 'Kury policzone', 'Policzone', 'szt.']};
+function choreTile(k, ch) {
+  const es = ch.items[k], last = es[es.length - 1], [i, t, btn, unit] = CHORE[k];
+  const sum = es.filter(e => e.amount != null).reduce((a, e) => a + e.amount, 0), anyAmt = es.some(e => e.amount != null);
+  let st = '<span class="mu">Jeszcze nie</span>';
+  if (last) {
+    const amt = k === 'hens' ? (last.amount != null ? ` · ${last.amount} szt.` : '') : anyAmt ? ` · ${nf(sum, 2)} ${unit}` : '';
+    st = `<span class="ok">✓ ${hm(last.at)}${es.length > 1 ? ` (${es.length}×)` : ''}${last.by_name ? ' · ' + esc(last.by_name) : ''}${amt}</span>`;
+    if (k === 'hens' && last.amount != null && ch.birds && last.amount !== ch.birds)
+      st += `<span class="no">W stadach zapisano ${ch.birds} kur. <a href="#/stado">Popraw stado</a>, jeśli liczenie się zgadza.</span>`;
+  }
+  const undo = last && !last.auto ? `<button class="sm ghost" data-act="choreundo" data-id="${last.id}" aria-label="Cofnij: ${t}">Cofnij</button>` : '';
+  let act;
+  if (k === 'eggs') act = `<button class="sm${last ? '' : ' pri'}" data-act="go" data-v="jaja/zbior">${last ? 'Kolejny zbiór' : btn}</button>`;
+  else if (k === 'hens' || ch.amounts) act = `<form data-f="chore" data-k="${k}" class="inl"><label for="ch-${k}" class="sr-only">${t}: ilość (${unit})</label>
+    <input id="ch-${k}" name="amount" type="number" min="0" step="${k === 'hens' ? 1 : 0.1}" inputmode="decimal" placeholder="${k === 'hens' ? 'ile kur' : k === 'feed' ? 'ile kg' : 'ile litrów'}"${k === 'hens' && ch.birds ? ` value="${ch.birds}"` : ''}>
+    <button class="sm${last ? '' : ' pri'}">${btn}</button></form>`;
+  else act = `<button class="sm${last ? '' : ' pri'}" data-act="chore" data-k="${k}">${btn}</button>`;
+  return `<div class="chore${last ? ' done' : ''}" data-chore="${k}"><span class="ti" aria-hidden="true">${i}</span><div class="tb"><b>${t}</b>${st}</div>
+    <div class="seg">${act}${undo}</div></div>`;
+}
+const choresCard = ch => `<section class="card" data-chores><div class="dev-h"><h2>✅ Dzisiaj w kurniku</h2>
+  <span class="badge${ch.kinds.every(k => ch.items[k].length) ? ' ok' : ''}">${ch.kinds.filter(k => ch.items[k].length).length} z ${ch.kinds.length}</span></div>
+  <div class="chores">${ch.kinds.map(k => choreTile(k, ch)).join('')}</div></section>`;
+async function choresReload(msg, r) {
+  if (!done(r, msg)) return;
+  const ch = await api('GET', '/api/my/chores'), box = $('[data-chores]');
+  if (ch.ok && box) box.outerHTML = choresCard(ch.data);
+}
 async function vStart() {
-  const [orders, devs, farm, fin, subs, eq, eg] = await Promise.all([load('/api/my/orders'), load('/api/my/devices'), load('/api/my/farm'),
-    load('/api/my/finance?days=1'), load('/api/my/subscriptions'), load('/api/my/equipment'), load('/api/my/eggs?days=1')]);
+  const [orders, devs, farm, fin, subs, eq, eg, ch] = await Promise.all([load('/api/my/orders'), load('/api/my/devices'), load('/api/my/farm'),
+    load('/api/my/finance?days=1'), load('/api/my/subscriptions'), load('/api/my/equipment'), load('/api/my/eggs?days=1'), load('/api/my/chores')]);
   const due = subs.filter(x => x.due), checks = eq.filter(x => x.check_due);
   devs.forEach(d => DEV[d.id] = d);
   const pend = orders.filter(o => o.status === 'pending').length, h = new Date().getHours();
@@ -251,6 +282,9 @@ async function vStart() {
     <button class="act" data-act="go" data-v="sprzedaz"><span class="i" aria-hidden="true">🧺</span>Sprzedaż</button>
     <button class="act" data-act="go" data-v="zamowienia"><span class="i" aria-hidden="true">📋</span><span>Zamówienia ${pend ? `<span class="count" aria-label="${pend} czeka na potwierdzenie">${pend}</span>` : ''}</span></button>
     <button class="act" data-act="go" data-v="sterowanie"><span class="i" aria-hidden="true">🎛️</span>Sterowanie</button></div></section>
+    ${ch.kinds.length ? choresCard(ch) : dismissed('chores') ? '' : `<section class="card"><h2>✅ Lista obowiązków</h2>
+      <p class="mu">Odhaczaj codziennie paszę, wodę, zbiór jaj i liczenie kur: portal zapisze godzinę i kto to zrobił, a ilości paszy i wody pokaże w Analityce.</p>
+      <div class="actions"><button class="pri" data-act="go" data-v="ustawienia">Włącz w Ustawieniach</button><button class="ghost" data-act="dismiss" data-v="chores">Nie teraz</button></div></section>`}
     <section class="card"><div class="dev-h"><h2>🐔 Stan kurnika</h2>${d ? statusBadge(d) : ''}</div>${coop}</section>
     ${due.length || checks.length ? `<section class="card"><h2>🔔 Do zrobienia</h2><ul class="list">${due.map(x => `<li><span class="ti" aria-hidden="true">🔁</span><div class="tb">
       <b>${esc(x.client_name)}: ${x.eggs} szt.</b><span class="mu">stały klient, dostawa do wydania</span></div><button class="pri sm" data-act="go" data-v="sprzedaz/sub-${x.id}">Wydaj</button></li>`).join('')}
@@ -641,7 +675,8 @@ function monthBars(ms) {
 const hbars = (rows, val, fmt) => { const mx = Math.max(1e-9, ...rows.map(val)); return `<ul class="list hb">${rows.map(r => `<li><div class="tb"><span>${r.label}</span>
   <span class="cbar" style="--w:${(val(r) / mx * 100).toFixed(1)}%" aria-hidden="true"></span></div><b>${fmt(val(r))}</b></li>`).join('')}</ul>` };
 async function vAnalytics() {
-  const a = await load('/api/my/analytics?days=' + anDays), t = a.totals;
+  const [a, hist] = await Promise.all([load('/api/my/analytics?days=' + anDays), load('/api/my/chores/history?days=14')]), t = a.totals;
+  const tm = x => x.times.length ? x.times.join(', ') : '–', any = hist.some(d => Object.keys(CHORE).some(k => k !== 'eggs' && d[k].times.length));
   const meth = Object.entries(a.methods).map(([k, v]) => ({label: (PAY[k] || ['', k]).join(' '), v})).sort((x, y) => y.v - x.v);
   return `<h1>Analityka</h1><div class="seg" role="group" aria-label="Okres">${[[30, '30 dni'], [90, '3 miesiące'], [365, 'Rok']].map(([d, l]) =>
     `<button class="sm" data-act="andays" data-v="${d}" aria-pressed="${d === anDays}">${l}</button>`).join('')}</div>
@@ -650,6 +685,14 @@ async function vAnalytics() {
       ${stat('Sprzedane', t.sold + ' szt.')}${stat('Przychody', zl(t.revenue))}${stat('Rozdane', t.given + ' szt.')}${stat('Straty', t.lost + ' szt.')}</div></section>
     <section class="card"><h2>🥚 Zbiory i nieśność</h2><div class="charts">${lineChart('an:c', a.daily, 'collected', ' szt.', 't', 'Zebrane jaja dziennie (szt.)')}
       ${a.birds ? lineChart('an:l', a.daily, 'laying', ' %', 'h', 'Nieśność dzienna (% kur, dni ze zbiorem)') : '<figure><figcaption>Nieśność</figcaption><p class="mu">Dodaj stado (Więcej → Stado), aby liczyć nieśność.</p></figure>'}</div></section>
+    ${t.feed_days || t.water_days ? `<section class="card"><h2>🌾 Pasza i woda</h2><div class="stats">
+      ${stat('Pasza nasypana', nf(t.feed, 1) + ' kg', `${t.feed_days} dni z ilością`)}${t.feed_per_hen_g != null ? stat('Pasza na kurę', nf(t.feed_per_hen_g, 0) + ' g/dzień') : ''}
+      ${stat('Woda nalana', nf(t.water, 1) + ' l', `${t.water_days} dni z ilością`)}${t.water_per_hen_ml != null ? stat('Woda na kurę', nf(t.water_per_hen_ml, 0) + ' ml/dzień') : ''}</div>
+      <div class="charts">${lineChart('an:f', a.daily, 'feed', ' kg', 't', 'Pasza nasypana dziennie (kg)')}${lineChart('an:w', a.daily, 'water', ' l', 'h', 'Woda nalana dziennie (l)')}</div></section>` : ''}
+    ${any ? `<section class="card"><details><summary>✅ Obowiązki: ostatnie 14 dni</summary><div class="tw"><table><thead><tr><th>Dzień</th><th>🌾 Pasza</th><th>💧 Woda</th><th>🥚 Zbiór</th><th>🐔 Kury</th></tr></thead>
+      <tbody>${hist.map(d => `<tr><td>${dmy(d.day)}</td><td>${tm(d.feed)}${d.feed.amount != null ? ` · ${nf(d.feed.amount, 1)} kg` : ''}</td>
+        <td>${tm(d.water)}${d.water.amount != null ? ` · ${nf(d.water.amount, 1)} l` : ''}</td><td>${tm(d.eggs)}${d.eggs.amount != null ? ` · ${d.eggs.amount} szt.` : ''}</td>
+        <td>${tm(d.hens)}${d.hens.amount != null ? ` · ${d.hens.amount}` : ''}</td></tr>`).join('')}</tbody></table></div></details></section>` : ''}
     <section class="card"><h2>💰 Pieniądze</h2><div class="charts">${monthBars(a.monthly)}</div>
       <div class="tw"><table><thead><tr><th>Miesiąc</th><th>Przychody</th><th>Wydatki</th><th>Wynik</th></tr></thead><tbody>${a.monthly.map(m =>
         `<tr><td>${new Date(m.month + '-15').toLocaleDateString('pl-PL', {month: 'long', year: 'numeric'})}</td><td>${zl(m.revenue)}</td><td>${zl(m.expenses)}</td><td class="${m.profit < 0 ? 'no' : ''}">${zl(m.profit)}</td></tr>`).join('')}</tbody></table></div></section>
@@ -917,11 +960,15 @@ const memberLi = m => `<li data-member="${m.id}"><span class="ti" aria-hidden="t
   <span class="mu">${esc(m.email)}${m.owner ? ' · właściciel' : ''}</span></div>
   ${me.owner && !m.me ? `<button class="sm ghost danger" data-act="memberdel" data-id="${m.id}">Usuń dostęp</button>` : ''}</li>`;
 async function vSettings() {
-  const t = theme(), [st, team] = await Promise.all([load('/api/my/settings'), load('/api/my/team')]), mine = team.find(m => m.me) || {name: ''};
+  const t = theme(), [st, team, cc] = await Promise.all([load('/api/my/settings'), load('/api/my/team'), load('/api/my/chores/config')]), mine = team.find(m => m.me) || {name: ''};
   return `<h1>Ustawienia</h1><section class="card"><h2>⏰ Przypomnienie o zbiorze</h2>
     <p class="mu">Jeśli do tej godziny nie wpiszesz zbioru, portal przypomni${st.mail_configured ? ` e-mailem na ${esc(st.email)} i` : ''} na ekranie Start.</p>
     <form data-f="settings"><label class="chk"><input type="checkbox" name="remind_on" ${st.remind_on ? 'checked' : ''}> Przypominaj o wpisaniu zbioru</label>
     <label for="st-h">Godzina</label><select id="st-h" name="remind_hour">${Array.from({length: 19}, (_, i) => i + 5).map(h => `<option value="${h}"${h === st.remind_hour ? ' selected' : ''}>${h}:00</option>`).join('')}</select>
+    <div class="actions"><button class="pri">Zapisz</button></div></form></section>
+    <section class="card"><h2>✅ Lista obowiązków na Starcie</h2><p class="mu">Opcjonalna. Zaznacz, co chcesz codziennie odhaczać; portal zapisze godzinę i osobę.</p>
+    <form data-f="chorecfg">${Object.entries(CHORE).map(([k, [i, n]]) => `<label class="chk"><input type="checkbox" name="k_${k}" ${cc.kinds.includes(k) ? 'checked' : ''}> ${i} ${n}</label>`).join('')}
+    <label class="chk"><input type="checkbox" name="amounts" ${cc.amounts ? 'checked' : ''}> Pytaj, ile paszy nasypano (kg) i wody nalano (l), do statystyk w Analityce</label>
     <div class="actions"><button class="pri">Zapisz</button></div></form></section>
     <section class="card"><h2>📲 Aplikacja</h2><p class="mu">${standalone() ? 'Portal jest zainstalowany jako aplikacja.' : 'Dodaj portal na ekran telefonu lub komputera: otworzy się jak zwykła aplikacja, bez paska przeglądarki.'}</p>
     ${standalone() ? '' : '<div class="actions"><button class="pri" data-act="install">Dodaj jako aplikację</button></div><p class="mu" data-installhelp hidden></p>'}</section>
@@ -1317,6 +1364,8 @@ const ACT = {
   async calmonth(b) { const d = new Date(calMonth + '-15T12:00:00'); d.setMonth(d.getMonth() + +b.dataset.v); calMonth = ymd(d).slice(0, 7); await calReload() },
   calday(b) { calDay = b.dataset.v; $('[data-calendar]').innerHTML = '<h2>📅 Kalendarz</h2>' + calendar() },
   async andays(b) { anDays = +b.dataset.v; await refresh() },
+  async chore(b) { await choresReload(`${CHORE[b.dataset.k][1]}: zapisano`, await api('POST', '/api/my/chores', {kind: b.dataset.k})) },
+  async choreundo(b) { await choresReload('Cofnięto', await api('DELETE', `/api/my/chores/${b.dataset.id}`)) },
   async photodel(b) {
     if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = 'Na pewno?'; return }
     if (done(await api('DELETE', `/api/my/photos/${b.dataset.id}`), 'Zdjęcie usunięte')) await refresh();
@@ -1450,6 +1499,15 @@ const FORMS = {
   async member(f, v) { if (done(await api('POST', '/api/my/team', v), `Dodano: ${v.name}. Przekaż login i hasło.`)) await refresh() },
   async myname(f, v) { if (done(await api('PATCH', `/api/my/team/${me.id}`, {name: v.name}), 'Zapisano imię')) await refresh() },
   async password(f, v) { if (done(await api('PUT', '/api/my/password', v), 'Hasło zmienione')) f.reset() },
+  async chore(f, v) {
+    const k = f.dataset.k, n = num(v.amount), b = {kind: k};
+    if (n != null) b.amount = n;
+    await choresReload(`${CHORE[k][1]}${n != null ? `: ${nf(n, 2)} ${CHORE[k][3]}` : ''}`, await api('POST', '/api/my/chores', b));
+  },
+  async chorecfg(f, v) {
+    const kinds = Object.keys(CHORE).filter(k => 'k_' + k in v), r = await api('PUT', '/api/my/chores/config', {kinds, amounts: 'amounts' in v});
+    done(r, kinds.length ? 'Lista obowiązków jest na ekranie Start' : 'Lista obowiązków wyłączona');
+  },
   async photo(f) {
     const fd = new FormData(f), file = f.elements.file.files[0];
     if (file) fd.set('file', await shrink(file));

@@ -20,6 +20,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from . import analytics
 from . import archive
 from . import catalog as cat
+from . import chores
 from . import db as dbm
 from . import clients
 from . import ekurnik
@@ -681,6 +682,7 @@ def create_app(test_config=None):
     feed.register(app, need, q, commit, body, err)
     shop_extra = photos.register(app, need, q, commit, body, err)
     archive.register(app, need, q, commit, err)
+    chores.register(app, need, q, commit, body, err, integer)
     team.register(app, need, q, commit, body, err)
     analytics.register(app, need, q, commit, body, err)
 

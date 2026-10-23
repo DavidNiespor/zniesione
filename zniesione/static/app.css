@@ -220,3 +220,10 @@ img.cover{width:calc(100% + 2rem);margin:-1rem -1rem .8rem;aspect-ratio:16/9;obj
 .pbox form.inl{margin-top:.4rem}.pbox input[type=file]{padding:.4rem;min-height:44px}
 details.shopmore{margin-top:.6rem}.shopb{border-top:1px solid var(--ln);padding:.5rem 0}.shopb:first-of-type{border-top:0}
 ul.plain{list-style:none;padding:0;margin:.3rem 0}ul.plain li{margin:.35rem 0}
+
+/* lista obowiązków na Starcie */
+.chores{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:.6rem}
+.chore{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;background:var(--sf2);border:1px solid var(--ln);border-radius:16px;padding:.7rem}
+.chore.done{border-color:var(--ok)}.chore .ti{font-size:1.8rem;width:2.2rem;text-align:center}
+.chore .tb{flex:1;min-width:10rem;display:flex;flex-direction:column;gap:.1rem}.chore .tb span{font-size:.9rem}
+.chore form.inl input{width:6.5rem;flex:none;min-width:0;min-height:44px}
