@@ -63,7 +63,7 @@ def test_client_price_discount_and_anonymous_sale(app, farmer):
         assert c.post("/api/my/sales", bad).status_code == 400, bad
     r = c.post("/api/my/sales", {"packs": 500, "method": "cash"})
     assert r.status_code == 409 and "Na stanie jest tylko 44" in r.get_json()["error"]
-    assert c.get("/api/my/eggs?days=1").get_json()["sold"] == 6                                  # dziennik jaj też widzi sprzedaż
+    assert c.get("/api/my/eggs?days=1").get_json()["sold"] == 60                                 # dziennik jaj (w sztukach) widzi sprzedaż
 
 
 def test_deliver_confirmed_order_and_undo(app, farmer, anon):
@@ -123,7 +123,10 @@ def test_finance_summary(app, farmer):
     c.post("/api/my/sales", {"packs": 1, "method": "cash"})                                 # 14 gotówką, bez kartoteki
     f = c.get("/api/my/finance?days=30").get_json()
     assert f["received"] == {"cash": 14, "transfer": 20, "blik": 0} and f["received_total"] == 34
-    assert (f["sales_value"], f["sales_packs"], f["debts"], f["debtors"], f["overpaid"]) == (56, 4, 28, 1, 6)
+    assert (f["sales_value"], f["sales_eggs"], f["debts"], f["debtors"], f["overpaid"]) == (56, 40, 28, 1, 6)
+    c.post("/api/my/expenses", {"category": "Pasza i zboże", "name": "Pszenica", "qty": 10, "unit": "kg", "unit_price": 1.5})
+    f = c.get("/api/my/finance?days=30").get_json()
+    assert (f["expenses"], f["profit"]) == (15, 41)
     assert c.get("/api/my/finance?days=0").status_code == 400
 
 

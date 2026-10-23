@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 
 from flask import g, jsonify, request
 
+from . import farmbook
+
 METHODS = ("cash", "transfer", "blik", "later", "balance")   # gotówka, przelew, BLIK, następnym razem, z nadpłaty
 PAID_NOW = ("cash", "transfer", "blik")
 CLIENT = dict(name="", phone="", email="", address="", notes="", price10=None)
@@ -194,33 +196,47 @@ def register(app, need, q, commit, body, err, integer):
         method = b.get("method", "cash")
         if method not in METHODS:
             return err("Sposób płatności: cash, transfer, blik, later (następnym razem) albo balance (z nadpłaty)")
-        c, o = None, None
-        if b.get("order_id") is not None:  # wydanie potwierdzonego zamówienia: jaja zostały już odjęte ze stanu
+        c, o, sub = None, None, None
+        if b.get("order_id") is not None:  # wydanie potwierdzonego zamówienia ze sklepu
             o = q("SELECT * FROM orders WHERE id=? AND farm_id=?", b["order_id"], fid).fetchone() if integer(b["order_id"], 1, 10 ** 9) else None
             if not o:
                 return err("Nie znaleziono zamówienia", 404)
             if o["status"] != "confirmed":
                 return err("Wydać można tylko potwierdzone zamówienie, które nie zostało jeszcze wydane", 409)
             c = client_row(o["client_id"]) if o["client_id"] else None
-            packs, price10, discount, total = o["qty"], round(o["total"] / o["qty"], 2), 0, round(o["total"], 2)
+            eggs, price10, discount, total, source = o["qty"] * 10, round(o["total"] / o["qty"], 2), 0, round(o["total"], 2), "order"
         else:
-            if b.get("client_id") is not None:
-                c = client_row(b["client_id"]) if integer(b["client_id"], 1, 10 ** 9) else None
-                if not c:
-                    return err("Nieznany klient")
-            packs = b.get("packs")
-            if not integer(packs, 1, 500):
-                return err("Liczba opakowań od 1 do 500")
-            farm_price = q("SELECT price10 FROM farms WHERE id=?", fid).fetchone()["price10"]
-            price10 = b.get("price10", c["price10"] if c and c["price10"] is not None else farm_price)
+            if b.get("subscription_id") is not None:  # dostawa dla stałego klienta (zamówienie cykliczne)
+                sub = q("SELECT * FROM subscriptions WHERE id=? AND farm_id=?", b["subscription_id"], fid).fetchone() \
+                    if integer(b["subscription_id"], 1, 10 ** 9) else None
+                if not sub:
+                    return err("Nie znaleziono zamówienia cyklicznego", 404)
+                c, eggs = client_row(sub["client_id"]), b.get("eggs", sub["eggs"])
+            else:
+                if b.get("client_id") is not None:
+                    c = client_row(b["client_id"]) if integer(b["client_id"], 1, 10 ** 9) else None
+                    if not c:
+                        return err("Nieznany klient")
+                eggs = b.get("eggs", b["packs"] * 10 if integer(b.get("packs"), 1, 500) else None)
+            if not integer(eggs, 1, 5000):
+                return err("Liczba jaj od 1 do 5000 szt. (albo opakowań od 1 do 500)")
+            farm = q("SELECT price10, reserved FROM farms WHERE id=?", fid).fetchone()
+            price10 = b.get("price10", c["price10"] if c and c["price10"] is not None else farm["price10"])
             discount = b.get("discount", 0)
             if not money(price10, 0, 1000):
                 return err("Cena za 10 szt. od 0 do 1000 zł")
             if not money(discount, 0, 100000):
                 return err("Rabat nie może być ujemny")
-            total = round(packs * price10 - discount, 2)
+            total = round(eggs * price10 / 10 - discount, 2)
             if total < 0:
                 return err("Rabat jest większy niż wartość sprzedaży")
+            # skąd jaja: wolne z magazynu, z rezerwy stałych klientów albo z ogłoszonych w sklepie (opakowania)
+            default = "reserve" if sub and farm["reserved"] >= eggs else "offer" if "packs" in b and "eggs" not in b else "free"
+            source = b.get("source", default)
+            if source not in ("free", "reserve", "offer"):
+                return err("Źródło jaj: free (wolne), reserve (rezerwa) albo offer (ogłoszone w sklepie)")
+            if source == "offer" and eggs % 10:
+                return err("Z ogłoszonych w sklepie sprzedaje się całe opakowania po 10 szt.")
         if method in ("later", "balance") and not c:
             return err("Sprzedaż na dług lub z nadpłaty wymaga klienta z kartoteki")
         paid = b.get("paid", total if method in PAID_NOW else 0)
@@ -233,26 +249,37 @@ def register(app, need, q, commit, body, err, integer):
         notes = b.get("notes", "")
         if not isinstance(notes, str) or len(notes) > 200:
             return err("Uwagi do 200 znaków")
-        if o:
+        # pule jaj zmieniane jednym zapytaniem z warunkiem: dwa kliknięcia naraz nie zejdą poniżej zera
+        if source == "order":
             if not q("UPDATE orders SET status='delivered' WHERE id=? AND status='confirmed'", o["id"]).rowcount:
                 return err("Zamówienie zostało już wydane", 409)
-        elif not q("UPDATE farms SET stock=stock-? WHERE id=? AND stock>=?", packs, fid, packs).rowcount:
-            return err(f"Na stanie jest tylko {q('SELECT stock FROM farms WHERE id=?', fid).fetchone()['stock']} opak.", 409)
+            q("UPDATE farms SET eggs=MAX(0, eggs-?) WHERE id=?", eggs, fid)
+        elif source == "offer":
+            if not q("UPDATE farms SET stock=stock-?, eggs=MAX(0, eggs-?) WHERE id=? AND stock>=?", eggs // 10, eggs, fid, eggs // 10).rowcount:
+                return err(f"Na stanie jest tylko {q('SELECT stock FROM farms WHERE id=?', fid).fetchone()['stock']} opak.", 409)
+        elif source == "reserve":
+            if not q("UPDATE farms SET reserved=reserved-?, eggs=eggs-? WHERE id=? AND reserved>=?", eggs, eggs, fid, eggs).rowcount:
+                return err(f"Zarezerwowanych jest tylko {q('SELECT reserved FROM farms WHERE id=?', fid).fetchone()['reserved']} szt.", 409)
+        elif not q(f"UPDATE farms SET eggs=eggs-? WHERE id=? AND eggs-stock*10-reserved-{farmbook.committed_sql()}>=?", eggs, fid, eggs).rowcount:
+            return err(f"Wolnych jaj jest tylko {farmbook.pools(q, fid)['free']} szt. (reszta ogłoszona w sklepie lub zarezerwowana)", 409)
         at = now()
-        sid = q("INSERT INTO sales(farm_id,client_id,order_id,at,packs,price10,discount,total,method,paid,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                fid, c["id"] if c else None, o["id"] if o else None, at, packs, price10, discount, total, method, round(paid, 2), notes.strip()).lastrowid
-        if not o:
-            q("INSERT INTO eggs(farm_id,kind,packs,at,sale_id) VALUES(?,?,?,?,?)", fid, "sale", packs, at, sid)
+        sid = q("INSERT INTO sales(farm_id,client_id,order_id,subscription_id,at,eggs,packs,price10,discount,total,method,paid,notes,source) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", fid, c["id"] if c else None, o["id"] if o else None, sub["id"] if sub else None,
+                at, eggs, eggs // 10, price10, discount, total, method, round(paid, 2), notes.strip(), source).lastrowid
+        q("INSERT INTO eggs(farm_id,kind,eggs,packs,at,sale_id) VALUES(?,?,?,?,?,?)", fid, "sale", eggs, eggs // 10, at, sid)
+        if sub:  # następna dostawa liczona od dziś
+            q("UPDATE subscriptions SET next_date=? WHERE id=?", (datetime.now().date() + timedelta(days=sub["every_days"])).isoformat(), sub["id"])
         if c:
             q("INSERT INTO ledger(farm_id,client_id,at,kind,amount,sale_id,note) VALUES(?,?,?,?,?,?,?)", fid, c["id"], at, "sale",
-              total, sid, f"{packs} opak. × {price10:.2f} zł" + (f", rabat {discount:.2f} zł" if discount else "")
-              + (f", zamówienie nr {o['id']}" if o else ""))
+              total, sid, f"{eggs} szt. × {price10 / 10:.2f} zł" + (f", rabat {discount:.2f} zł" if discount else "")
+              + (f", zamówienie nr {o['id']}" if o else ", stały klient" if sub else ""))
             if paid:
                 q("INSERT INTO ledger(farm_id,client_id,at,kind,amount,method,sale_id,note) VALUES(?,?,?,?,?,?,?,?)", fid, c["id"], at,
                   "payment", round(-paid, 2), method, sid, "Wpłata przy sprzedaży")
         commit()
-        stock = q("SELECT stock FROM farms WHERE id=?", fid).fetchone()["stock"]
-        return jsonify(id=sid, total=total, paid=round(paid, 2), stock=stock, balance=balance(c["id"]) if c else None), 201
+        p = farmbook.pools(q, fid)
+        return jsonify(id=sid, eggs=eggs, total=total, paid=round(paid, 2), stock=p["offer_packs"], pools=p,
+                       balance=balance(c["id"]) if c else None), 201
 
     @app.delete("/api/my/sales/<int:sid>")
     @need("farmer")
@@ -263,9 +290,9 @@ def register(app, need, q, commit, body, err, integer):
             return err("Nie znaleziono", 404)
         if s["order_id"]:
             q("UPDATE orders SET status='confirmed' WHERE id=?", s["order_id"])
-        else:
-            q("UPDATE farms SET stock=stock+? WHERE id=?", s["packs"], fid)
-            q("DELETE FROM eggs WHERE sale_id=?", sid)
+        q("UPDATE farms SET eggs=eggs+?, stock=stock+?, reserved=reserved+? WHERE id=?", s["eggs"],
+          s["eggs"] // 10 if s["source"] == "offer" else 0, s["eggs"] if s["source"] == "reserve" else 0, fid)
+        q("DELETE FROM eggs WHERE sale_id=?", sid)
         q("DELETE FROM ledger WHERE sale_id=?", sid)
         q("DELETE FROM sales WHERE id=?", sid)
         commit()
@@ -285,8 +312,10 @@ def register(app, need, q, commit, body, err, integer):
         for r in q("SELECT method, paid FROM sales WHERE farm_id=? AND at>=? AND client_id IS NULL", fid, since):
             got[r["method"]] = got.get(r["method"], 0) + r["paid"]
         bals = [r[0] for r in q("SELECT SUM(amount) FROM ledger WHERE farm_id=? GROUP BY client_id", fid)]
-        sv = q("SELECT COALESCE(SUM(total),0), COALESCE(SUM(packs),0), COUNT(*) FROM sales WHERE farm_id=? AND at>=?", fid, since).fetchone()
+        sv = q("SELECT COALESCE(SUM(total),0), COALESCE(SUM(eggs),0), COUNT(*) FROM sales WHERE farm_id=? AND at>=?", fid, since).fetchone()
+        exp = q("SELECT COALESCE(SUM(total),0) FROM expenses WHERE farm_id=? AND date>=?", fid, since[:10]).fetchone()[0]
         return jsonify(days=int(days), received={k: round(v, 2) for k, v in got.items()}, received_total=round(sum(got.values()), 2),
-                       sales_value=round(sv[0], 2), sales_packs=sv[1], sales_count=sv[2],
+                       sales_value=round(sv[0], 2), sales_eggs=sv[1], sales_count=sv[2], expenses=round(exp, 2),
+                       profit=round(sv[0] - exp, 2),
                        debts=round(sum(b for b in bals if b > 0.005), 2), debtors=sum(1 for b in bals if b > 0.005),
                        overpaid=round(-sum(b for b in bals if b < -0.005), 2))

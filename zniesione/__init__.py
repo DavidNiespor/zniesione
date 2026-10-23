@@ -17,6 +17,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from . import catalog as cat
 from . import db as dbm
 from . import clients
+from . import farmbook
 from . import services as sv
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
@@ -359,8 +360,9 @@ def create_app(test_config=None):
                 return err("Za mały stan magazynowy", 409)
             q("UPDATE farms SET stock=stock-? WHERE id=?", o["qty"], o["farm_id"])
         q("UPDATE orders SET status=? WHERE id=?", "confirmed" if action == "confirm" else "rejected", oid)
+        sub = farmbook.subscription_from_order(dbm.get(), o) if action == "confirm" else None
         commit()
-        return jsonify(ok=True)
+        return jsonify(ok=True, subscription_id=sub)
 
     @app.post("/api/my/device-orders")
     @need("farmer")
@@ -637,31 +639,7 @@ def create_app(test_config=None):
         commit()
         return jsonify(ok=True)
 
-    @app.route("/api/my/eggs", methods=["GET", "POST"])
-    @need("farmer")
-    def eggs():
-        fid = g.user["farm_id"]
-        if request.method == "GET":
-            days = request.args.get("days", "30")
-            if not days.isdigit() or not 1 <= int(days) <= 365:
-                return err("Parametr days od 1 do 365")
-            rows = q("SELECT id,kind,packs,at FROM eggs WHERE farm_id=? AND at>=? ORDER BY id DESC", fid,
-                     (datetime.now() - timedelta(days=int(days))).isoformat()).fetchall()
-            return jsonify(days=int(days), collected=sum(r["packs"] for r in rows if r["kind"] == "collect"),
-                           sold=sum(r["packs"] for r in rows if r["kind"] == "sale"), entries=[dict(r) for r in rows[:200]])
-        b = body()
-        if b.get("kind") not in ("collect", "sale"):
-            return err("Rodzaj wpisu: collect (zbiór) lub sale (sprzedaż)")
-        if not integer(b.get("packs"), 1, 500):
-            return err("Liczba opakowań od 1 do 500")
-        if b["kind"] == "sale":  # jedno zapytanie: stan nie spadnie poniżej zera nawet przy dwóch kliknięciach naraz
-            if not q("UPDATE farms SET stock=stock-? WHERE id=? AND stock>=?", b["packs"], fid, b["packs"]).rowcount:
-                return err(f"Na stanie jest tylko {q('SELECT stock FROM farms WHERE id=?', fid).fetchone()['stock']} opak.", 409)
-        else:
-            q("UPDATE farms SET stock=stock+? WHERE id=?", b["packs"], fid)
-        eid = q("INSERT INTO eggs(farm_id,kind,packs,at) VALUES(?,?,?,?)", fid, b["kind"], b["packs"], datetime.now().isoformat()).lastrowid
-        commit()
-        return jsonify(id=eid, stock=q("SELECT stock FROM farms WHERE id=?", fid).fetchone()["stock"]), 201
+    farmbook.register(app, need, q, commit, body, err, integer)
 
     # ---------- baza wiedzy ----------
     def kb_json(r, full=True):
@@ -851,9 +829,10 @@ def create_app(test_config=None):
             q("UPDATE channels SET name=?,kind=? WHERE device_id=? AND key=?", n, kind, did, k)
         q("INSERT INTO flocks(farm_id,name,birds,breed,since,notes) VALUES(1,?,?,?,?,?)", "Stado główne", 48,
           "Zielononóżka kuropatwiana", "2026-03-15", "Wybieg za stodołą, zamykane na noc.")
-        for i, packs in enumerate((3, 4, 3, 4, 4, 3, 3)):  # zbiory z ostatniego tygodnia (stan farmy bez zmian)
-            q("INSERT INTO eggs(farm_id,kind,packs,at) VALUES(1,'collect',?,?)", packs,
+        for i, (n, dmg) in enumerate(((38, 1), (41, 0), (35, 2), (40, 1), (42, 0), (36, 1), (39, 0))):  # zbiory z tygodnia, w sztukach
+            q("INSERT INTO eggs(farm_id,kind,eggs,damaged,packs,at) VALUES(1,'collect',?,?,?,?)", n, dmg, (n - dmg) // 10,
               (datetime.now() - timedelta(days=7 - i, hours=-2)).isoformat())
+        q("UPDATE farms SET eggs=stock*10+60, reserved=30 WHERE id=1")  # magazyn: 12 opak. w sklepie, 30 szt. rezerwy, 30 wolnych
         for name, phone, price, history in (  # kartoteka: dług, nadpłata, stały klient z własną ceną
                 ("Pani Zofia (sąsiadka)", "601202303", None, [("sale", 28, "later", 6), ("payment", -10, "cash", 3)]),
                 ("Pan Marek", "602404505", None, [("sale", 14, "cash", 5), ("payment", -24, "cash", 5)]),
@@ -869,6 +848,19 @@ def create_app(test_config=None):
                             cid, at, round(amount / p10), p10, amount, method, 0 if method == "later" else amount).lastrowid
                 q("INSERT INTO ledger(farm_id,client_id,at,kind,amount,method,sale_id,note) VALUES(1,?,?,?,?,?,?,?)", cid, at, kind,
                   amount, "" if kind == "sale" else method, sid, "Sprzedaż" if kind == "sale" else "Wpłata")
+            if name.startswith("Pani Zofia"):  # stała klientka: 30 szt. co tydzień, dostawa dziś
+                q("INSERT INTO subscriptions(farm_id,client_id,eggs,every_days,next_date,method,created) VALUES(1,?,30,7,?,'later',?)",
+                  cid, datetime.now().date().isoformat(), datetime.now().isoformat(timespec="seconds"))
+        q("UPDATE sales SET eggs=packs*10 WHERE farm_id=1")
+        for d, cat_, name, qty, unit, price in ((10, "Pasza i zboże", "Pszenica", 100, "kg", 1.1), (20, "Pasza i zboże", "Kukurydza", 50, "kg", 1.2),
+                                                 (15, "Witaminy i suplementy", "Witaminy do wody", 1, "szt", 27.5), (5, "Ściółka", "Słoma", 4, "kostka", 12)):
+            q("INSERT INTO expenses(farm_id,date,category,name,qty,unit,unit_price,total) VALUES(1,?,?,?,?,?,?,?)",
+              (datetime.now().date() - timedelta(days=d)).isoformat(), cat_, name, qty, unit, price, round(qty * price, 2))
+        for name, cat_, bought, price, state, check in (("Poidło automatyczne 10 l", "Poidło", "2026-03-15", 89, "ok", ""),
+                                                        ("Karmidło tubowe", "Karmidło", "2026-03-15", 65, "ok", ""),
+                                                        ("Lampa grzewcza", "Oświetlenie", "2025-11-02", 120, "repair",
+                                                         (datetime.now().date() + timedelta(days=5)).isoformat())):
+            q("INSERT INTO equipment(farm_id,name,category,bought,price,state,next_check) VALUES(1,?,?,?,?,?,?)", name, cat_, bought, price, state, check)
         now = datetime.now().isoformat(timespec="seconds")
         for title, cat_, text, pub in KB_DEMO:
             q("INSERT INTO kb(title,category,body,published,created,updated) VALUES(?,?,?,?,?,?)", title, cat_, text, pub, now, now)

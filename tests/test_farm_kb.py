@@ -22,24 +22,26 @@ def test_flocks_crud_validation_and_ownership(app, farmer, farmer2, anon):
     assert c.delete(f"/api/my/flocks/{f['id']}").status_code == 200 and c.get("/api/my/flocks").get_json() == []
 
 
-def test_egg_log_changes_stock_atomically(app, farmer, farmer2):
+def test_egg_log_in_pieces_with_damaged_and_losses(app, farmer, farmer2):
+    """Jaja liczone na sztuki: brudne i uszkodzone nie trafiają do magazynu (zmiana z opakowań, wymaganie rolnika)."""
     c, fid = farmer
-    c.put("/api/my/farm", {"stock": 2})
-    for bad in ({"kind": "collect", "packs": 0}, {"kind": "collect", "packs": 501}, {"kind": "steal", "packs": 1},
-                {"kind": "sale", "packs": "1"}):
+    for bad in ({"kind": "collect", "eggs": 0}, {"kind": "collect", "eggs": 10, "damaged": 11}, {"kind": "collect", "eggs": "10"},
+                {"kind": "steal", "eggs": 1}, {"kind": "collect", "packs": 3}, {"kind": "loss", "eggs": 0}):
         assert c.post("/api/my/eggs", bad).status_code == 400, bad
-    assert c.post("/api/my/eggs", {"kind": "collect", "packs": 5}).get_json()["stock"] == 7
-    r = c.post("/api/my/eggs", {"kind": "sale", "packs": 8})
-    assert r.status_code == 409 and "tylko 7" in r.get_json()["error"]
-    assert c.post("/api/my/eggs", {"kind": "sale", "packs": 3}).get_json()["stock"] == 4
+    st = c.post("/api/my/eggs", {"kind": "collect", "eggs": 38, "damaged": 3, "note": "2 brudne, 1 pęknięte"}).get_json()["stock"]
+    assert (st["eggs"], st["free"]) == (35, 35)
+    r = c.post("/api/my/eggs", {"kind": "loss", "eggs": 36})
+    assert r.status_code == 409 and "tylko 35" in r.get_json()["error"]
+    assert c.post("/api/my/eggs", {"kind": "loss", "eggs": 5, "note": "stłuczone"}).get_json()["stock"]["eggs"] == 30
     log = c.get("/api/my/eggs?days=7").get_json()
-    assert (log["collected"], log["sold"]) == (5, 3) and [e["kind"] for e in log["entries"]] == ["sale", "collect"]
+    assert (log["collected"], log["damaged"], log["good"], log["lost"], log["sold"]) == (38, 3, 35, 5, 0)
+    assert [e["kind"] for e in log["entries"]] == ["loss", "collect"]
     with app.app_context():
-        dbm.get().execute("INSERT INTO eggs(farm_id,kind,packs,at) VALUES(?,?,?,?)",
-                          (fid, "collect", 9, (datetime.now() - timedelta(days=20)).isoformat()))
+        dbm.get().execute("INSERT INTO eggs(farm_id,kind,eggs,at) VALUES(?,?,?,?)",
+                          (fid, "collect", 90, (datetime.now() - timedelta(days=20)).isoformat()))
         dbm.get().commit()
-    assert c.get("/api/my/eggs?days=7").get_json()["collected"] == 5
-    assert c.get("/api/my/eggs?days=30").get_json()["collected"] == 14
+    assert c.get("/api/my/eggs?days=7").get_json()["collected"] == 38
+    assert c.get("/api/my/eggs?days=30").get_json()["collected"] == 128
     for bad in ("0", "366", "x"):
         assert c.get(f"/api/my/eggs?days={bad}").status_code == 400
     assert farmer2[0].get("/api/my/eggs").get_json()["entries"] == []
@@ -75,6 +77,7 @@ def test_seed_has_flock_egg_log_and_articles(tmp_path):
     c = Client(a)
     c.post("/api/auth/login", {"email": "rolnik@zniesione.test", "password": "Rolnik12345!"})
     assert c.get("/api/my/flocks").get_json()[0]["birds"] == 48
-    assert c.get("/api/my/eggs?days=8").get_json()["collected"] == 24
+    e = c.get("/api/my/eggs?days=8").get_json()
+    assert (e["collected"], e["damaged"]) == (271, 5) and e["stock"]["free"] == 30 and e["reserve_needed_7d"] == 30
     titles = [x["title"] for x in c.get("/api/kb").get_json()]
     assert "Pierwsze uruchomienie sterownika" in titles and not any("szkic" in t for t in titles)

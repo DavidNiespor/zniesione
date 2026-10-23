@@ -24,14 +24,24 @@ CREATE TABLE IF NOT EXISTS log(id INTEGER PRIMARY KEY, device_id INTEGER NOT NUL
 CREATE TABLE IF NOT EXISTS config(k TEXT PRIMARY KEY, v TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS flocks(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, name TEXT NOT NULL,
   birds INTEGER NOT NULL DEFAULT 0, breed TEXT NOT NULL DEFAULT '', since TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '');
-CREATE TABLE IF NOT EXISTS eggs(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, kind TEXT NOT NULL CHECK(kind IN('collect','sale')),
-  packs INTEGER NOT NULL, at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS eggs(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, kind TEXT NOT NULL,
+  packs INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL, sale_id INTEGER, eggs INTEGER NOT NULL DEFAULT 0,
+  damaged INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS clients(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, name TEXT NOT NULL,
   phone TEXT NOT NULL DEFAULT '', phone_key TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
   address TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', price10 REAL, created TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sales(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, client_id INTEGER, order_id INTEGER,
   at TEXT NOT NULL, packs INTEGER NOT NULL, price10 REAL NOT NULL, discount REAL NOT NULL DEFAULT 0, total REAL NOT NULL,
   method TEXT NOT NULL, paid REAL NOT NULL DEFAULT 0, notes TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS subscriptions(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, client_id INTEGER NOT NULL,
+  eggs INTEGER NOT NULL, every_days INTEGER NOT NULL, next_date TEXT NOT NULL, method TEXT NOT NULL DEFAULT 'later',
+  active INTEGER NOT NULL DEFAULT 1, notes TEXT NOT NULL DEFAULT '', created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, date TEXT NOT NULL, category TEXT NOT NULL,
+  name TEXT NOT NULL, qty REAL NOT NULL DEFAULT 1, unit TEXT NOT NULL DEFAULT 'szt', unit_price REAL NOT NULL DEFAULT 0,
+  total REAL NOT NULL, supplier TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS equipment(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT '', bought TEXT NOT NULL DEFAULT '', price REAL NOT NULL DEFAULT 0,
+  state TEXT NOT NULL DEFAULT 'ok', next_check TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY, farm_id INTEGER NOT NULL, client_id INTEGER NOT NULL, at TEXT NOT NULL,
   kind TEXT NOT NULL CHECK(kind IN('sale','payment','refund','correction')), amount REAL NOT NULL, method TEXT NOT NULL DEFAULT '',
   sale_id INTEGER, note TEXT NOT NULL DEFAULT '');
@@ -43,7 +53,11 @@ COLUMNS = [
     ("farms", "lat", "REAL"), ("farms", "lon", "REAL"),
     ("devices", "door_run_s", "INTEGER NOT NULL DEFAULT 20"), ("devices", "door", "TEXT"),
     ("devices", "door_want", "INTEGER"), ("devices", "wg_priv", "TEXT"), ("devices", "wg_pub", "TEXT"),
-    ("orders", "client_id", "INTEGER"), ("eggs", "sale_id", "INTEGER"),
+    ("orders", "client_id", "INTEGER"),
+    ("farms", "eggs", "INTEGER NOT NULL DEFAULT 0"),      # jaja w magazynie (szt.), dobre
+    ("farms", "reserved", "INTEGER NOT NULL DEFAULT 0"),  # z tego zarezerwowane dla stałych klientów (szt.)
+    ("sales", "eggs", "INTEGER NOT NULL DEFAULT 0"), ("sales", "source", "TEXT NOT NULL DEFAULT 'offer'"),
+    ("sales", "subscription_id", "INTEGER"),
     ("channels", "off_at", "TEXT"), ("channels", "want", "INTEGER"),
     ("schedules", "mode", "TEXT NOT NULL DEFAULT 'time'"), ("schedules", "offset_min", "INTEGER NOT NULL DEFAULT 0"),
     ("schedules", "off_mode", "TEXT NOT NULL DEFAULT 'time'"), ("schedules", "off_offset_min", "INTEGER NOT NULL DEFAULT 0"),
@@ -72,6 +86,19 @@ def init_app(app):
 
 
 def migrate(db):
+    ddl = db.execute("SELECT sql FROM sqlite_master WHERE name='eggs'").fetchone()[0]
+    if "CHECK(kind IN('collect','sale'))" in ddl:  # stary dziennik jaj (tylko opakowania): przebudowa na sztuki
+        cols = {r[1] for r in db.execute("PRAGMA table_info(eggs)")}
+        db.executescript("ALTER TABLE eggs RENAME TO eggs_old;" + SCHEMA[SCHEMA.index("CREATE TABLE IF NOT EXISTS eggs"):].split(";")[0] + ";")
+        db.execute("INSERT INTO eggs(id,farm_id,kind,packs,at,sale_id,eggs) SELECT id,farm_id,kind,packs,at,"
+                   + ("sale_id" if "sale_id" in cols else "NULL") + ",packs*10 FROM eggs_old")
+        db.execute("DROP TABLE eggs_old")
+    added = set()
     for table, col, ddl in COLUMNS:
         if col not in {r[1] for r in db.execute(f"PRAGMA table_info({table})")}:
             db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+            added.add((table, col))
+    if ("farms", "eggs") in added:  # dotychczasowe opakowania w sklepie to jaja w magazynie
+        db.execute("UPDATE farms SET eggs=stock*10")
+    if ("sales", "eggs") in added:
+        db.execute("UPDATE sales SET eggs=packs*10")
