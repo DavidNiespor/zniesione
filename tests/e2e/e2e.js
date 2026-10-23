@@ -100,6 +100,20 @@ async function page() {
   const gf = p.$("form[data-f=gift]"); p.setv(gf, "eggs", "10"); p.setv(gf, "who", "Mama"); p.submit(gf);
   ok(await p.wait(() => /Zapisano: 10 szt\. dla: Mama\. Wolne: 80 szt\./.test(p.toast()) && /Rozdane: 10 szt\. · Mama/.test(p.$("[data-egglog]").textContent)),
     "rozdane: 10 szt. dla mamy");
+  ok(/Brudne\s*3 szt\./.test(p.$("[data-pools]").textContent), "brudne jaja z sortowania jako osobna pula");
+  let gf2 = p.$("form[data-f=gift]"); p.setv(gf2, "eggs", "2"); p.setv(gf2, "who", "Sąsiad"); p.setv(gf2, "pool", "dirty"); p.submit(gf2);
+  ok(await p.wait(() => /Zapisano: 2 szt\. brudnych dla: Sąsiad\. Wolne: 80 szt\./.test(p.toast()) && /Brudne\s*1 szt\./.test(p.$("[data-pools]").textContent)),
+    "rozdanie brudnych nie zmniejsza wolnych dobrych");
+  gf2 = p.$("form[data-f=gift]"); p.setv(gf2, "eggs", "5"); p.setv(gf2, "who", "Ciocia"); p.submit(gf2);
+  await p.wait(() => /Wolne: 75 szt\./.test(p.toast()) && p.$$("[data-egglog] li").some((li) => /Ciocia/.test(li.textContent)));
+  p.click(p.$$("[data-egglog] li").find((li) => /Ciocia/.test(li.textContent)).querySelector("[data-act=eggedit]"));
+  await p.wait(() => p.$("form[data-f=eggedit]"));
+  const ee = p.$("form[data-f=eggedit]"); p.setv(ee, "eggs", "3"); p.submit(ee);
+  ok(await p.wait(() => /Wpis poprawiony/.test(p.toast()) && /Wolne\s*77 szt\./.test(p.$("[data-pools]").textContent)), "poprawka wpisu (5 → 3 szt.) oddaje różnicę do wolnych");
+  p.click(p.$$("[data-egglog] li").find((li) => /Ciocia/.test(li.textContent)).querySelector("[data-act=eggedit]"));
+  await p.wait(() => p.$("form[data-f=eggedit] [data-act=eggdel]"));
+  p.click(p.$("[data-act=eggdel]")); p.click(p.$("[data-act=eggdel]"));
+  ok(await p.wait(() => /Wpis usunięty/.test(p.toast()) && /Wolne\s*80 szt\./.test(p.$("[data-pools]").textContent)), "usunięcie wpisu cofa stan jaj");
   // sprzedaż z kartoteki: klient z długiem płaci więcej, powstaje nadpłata
   await p.nav("sprzedaz");
   await p.wait(() => p.$("form[data-f=sale]"));
@@ -128,9 +142,11 @@ async function page() {
   p.submit(p.$("form[data-f=sale]"));
   ok(await p.wait(() => /Zapisano: 42,00 zł · saldo klienta: Dług: 38,00 zł/.test(p.toast()) && p.$("[data-subs]") && /następna dostawa/.test(p.$("[data-subs]").textContent)
     && !/do wydania/.test(p.$("[data-subs]").textContent)), "po wydaniu: dług w kartotece, następna dostawa za tydzień");
+  ok(p.$("[data-calendar] .cal") && p.$$("[data-calendar] .cd[data-v]").length >= 28 && /stały klient/.test(p.$("[data-calendar]").textContent),
+    "Zamówienia: kalendarz miesiąca z dostawami stałych klientów");
   await p.nav("wiecej");
-  const MORE = ["Sprzedaż", "Klienci", "Oferta", "Stado", "Sterowniki", "Raporty", "Pasza i mieszalnia", "Wydatki", "Wyposażenie", "Baza wiedzy", "Ustawienia"];
-  ok(await p.wait(() => p.$$(".mtile").length === 11) && MORE.every((t) => p.btn(t)), "Więcej: 11 dużych kafelków (w tym Pasza, Wydatki, Wyposażenie)");
+  const MORE = ["Sprzedaż", "Klienci", "Oferta", "Stado", "Sterowniki", "Raporty", "Analityka", "Pasza i mieszalnia", "Wydatki", "Wyposażenie", "Baza wiedzy", "Ustawienia"];
+  ok(await p.wait(() => p.$$(".mtile").length === 12) && MORE.every((t) => p.btn(t)), "Więcej: 12 dużych kafelków (w tym Analityka, Pasza, Wydatki, Wyposażenie)");
   await p.nav("pasza");
   ok(await p.wait(() => p.$("form[data-f=mix]") && /Pszenica: 25 kg/.test(p.$("[data-mixneed]").textContent)), "mieszalnia: ile czego potrzeba na 50 kg");
   const mf = p.$("form[data-f=mix]"); p.setv(mf, "kg", "40"); mf.elements.kg.dispatchEvent(new p.w.Event("input", { bubbles: true }));
@@ -138,6 +154,10 @@ async function page() {
   p.submit(mf);
   ok(await p.wait(() => /Wymieszano 40 kg/.test(p.toast()) && /Pszenica · 280 kg/.test(p.$("[data-feeditems]").textContent)), "mieszanie odejmuje składniki z magazynu");
   ok(/białko 16,3%/.test(p.text()), "receptura pokazuje zawartość białka");
+  const rcf = p.$$("form[data-f=recipe]").find((f) => f.dataset.id);
+  ok(rcf && rcf.querySelectorAll("[data-ritem]").length === 4, "edycja receptury: formularz z obecnymi składnikami");
+  p.setv(rcf, "name", "Nioski cały rok v2"); p.submit(rcf);
+  ok(await p.wait(() => /Receptura zmieniona/.test(p.toast()) && /Nioski cały rok v2/.test(p.text())), "zapis zmienionej receptury");
   await p.nav("wydatki");
   await p.wait(() => p.$("form[data-f=expense]"));
   const ef = p.$("form[data-f=expense]"); p.setv(ef, "name", "Pszenica"); p.setv(ef, "qty", "100"); p.setv(ef, "unit", "kg"); p.setv(ef, "unit_price", "1.15"); p.submit(ef);
@@ -146,6 +166,9 @@ async function page() {
   ok(await p.wait(() => /Lampa grzewcza/.test(p.text()) && /Do naprawy/.test(p.text()) && /⚠️ Przegląd/.test(p.text())), "wyposażenie: stan i przypomnienie o przeglądzie");
   const qf = p.$("form[data-f=equip][data-id='']"); p.setv(qf, "name", "Gniazdo 6-stanowiskowe"); p.setv(qf, "price", "149"); p.submit(qf);
   ok(await p.wait(() => /Dodano wyposażenie/.test(p.toast()) && /Gniazdo 6-stanowiskowe/.test(p.text())), "dodanie wyposażenia");
+  await p.nav("analityka");
+  ok(await p.wait(() => p.$(".chart svg") && /Przychody i wydatki/.test(p.text()) && /Formy płatności/.test(p.text()) && /Kto co robił/.test(p.text())),
+    "Analityka: wykresy zbiorów i pieniędzy, kto co robił");
   // kartoteka klienta: wpłata i rozliczenie do zera
   await p.nav("klienci");
   ok(await p.wait(() => /Anna Nowak/.test(p.text()) && /Dług 42,00 zł/.test(p.$("[data-client]").textContent) && p.$("a[href^='tel:']")), "Klienci: dłużnicy na górze, z numerem do zadzwonienia");
@@ -266,6 +289,9 @@ async function page() {
   p.setv(stf, "remind_hour", "20"); p.submit(stf);
   ok(await p.wait(() => /Przypomnienie o 20:00/.test(p.toast())), "zmiana godziny przypomnienia");
   ok(p.btn("Dodaj jako aplikację"), "ustawienia: przycisk instalacji aplikacji");
+  const tm = p.$("form[data-f=member]"); p.setv(tm, "name", "Ola"); p.setv(tm, "email", "ola@zniesione.test"); p.setv(tm, "password", "Ola123456!"); p.submit(tm);
+  ok(await p.wait(() => /Dodano: Ola/.test(p.toast()) && p.$("[data-team]") && /ola@zniesione\.test/.test(p.$("[data-team]").textContent)), "zespół: właściciel dodaje osobę z osobnym loginem");
+  ok(p.$("a[href='/api/my/export.zip']"), "ustawienia: pobranie kopii danych farmy");
   await p.clickBtn("Wyloguj");
   await p.wait(() => /Jaja prosto/.test(p.text()));
   await p.clickBtn("Zaloguj");

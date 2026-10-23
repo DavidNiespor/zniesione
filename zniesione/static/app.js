@@ -7,6 +7,11 @@ const zl = v => Number(v).toLocaleString('pl-PL', {minimumFractionDigits: 2, max
 const hm = iso => new Date(iso).toLocaleTimeString('pl-PL', {hour: '2-digit', minute: '2-digit'});
 const day = iso => new Date(iso).toLocaleDateString('pl-PL', {day: 'numeric', month: 'short'});
 const today = iso => new Date(iso).toDateString() === new Date().toDateString();
+const ymd = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const dmy = s => new Date(s + 'T12:00:00').toLocaleDateString('pl-PL', {day: 'numeric', month: 'short'});
+const dateIn = (id, v = ymd(), l = 'Data') => `<label for="${id}">${l}</label><input id="${id}" name="date" type="date" value="${v}" max="${ymd()}" min="${ymd(new Date(Date.now() - 365 * 864e5))}">`;
+const dateOf = v => v.date && v.date !== ymd() ? v.date : undefined;  // dziś: bez daty (zapis z godziną)
+const byWho = x => x.by_name ? esc(x.by_name) : '';
 const stat = (l, v, s) => `<div class="num"><span>${l}</span><b>${v}</b>${s ? `<span>${s}</span>` : ''}</div>`;
 
 // rodzaje kanałów: w API kody, rolnik widzi polskie nazwy (nadpisywane z /api/kinds)
@@ -19,10 +24,10 @@ const DAYS = [['a', 'Codziennie'], ['w', 'Od poniedziałku do piątku'], ['e', '
 const STAGES = ['Zamówione', 'Konfiguracja gotowa', 'Wysłane', 'Połączone'];
 const MAIN = [['start', '🏠', 'Start'], ['jaja', '🥚', 'Jaja'], ['sterowanie', '🎛️', 'Sterowanie'], ['zamowienia', '📋', 'Zamówienia']];
 const MORE = [['sprzedaz', '🧺', 'Sprzedaż', 'Zapisz sprzedaż i sposób płatności'], ['klienci', '👥', 'Klienci', 'Kartoteka: zakupy, wpłaty, długi i nadpłaty'], ['oferta', '🏷️', 'Oferta', 'Cena, opis i położenie gospodarstwa'],
-  ['stado', '🐔', 'Stado', 'Kury i notatki o stadzie'], ['sterowniki', '🔌', 'Sterowniki', 'Zamów sterownik, sprawdź dostawę'],
-  ['raporty', '📊', 'Raporty', 'Sprzedaż i jaja w liczbach'], ['pasza', '🌾', 'Pasza i mieszalnia', 'Magazyn zboża, receptury, mieszanie'], ['wydatki', '🧾', 'Wydatki', 'Pasza, weterynarz, ściółka i inne koszty'], ['wyposazenie', '🧰', 'Wyposażenie', 'Poidła, karmidła, lampy i przeglądy'],
+  ['stado', '🐔', 'Stado i budynki', 'Kurniki, stada w nich i liczba kur'], ['sterowniki', '🔌', 'Sterowniki', 'Zamów sterownik, sprawdź dostawę'],
+  ['raporty', '📊', 'Raporty', 'Sprzedaż i jaja w liczbach'], ['analityka', '📈', 'Analityka', 'Wykresy: zbiory, nieśność, przychody, wydatki'], ['pasza', '🌾', 'Pasza i mieszalnia', 'Magazyn zboża, receptury, mieszanie'], ['wydatki', '🧾', 'Wydatki', 'Pasza, weterynarz, ściółka i inne koszty'], ['wyposazenie', '🧰', 'Wyposażenie', 'Poidła, karmidła, lampy i przeglądy'],
   ['wiedza', '📚', 'Baza wiedzy', 'Porady i instrukcje krok po kroku'],
-  ['ustawienia', '⚙️', 'Ustawienia', 'Wygląd, konto, wylogowanie']];
+  ['ustawienia', '⚙️', 'Ustawienia', 'Zespół, hasło, kopia danych, wygląd']];
 const THEMES = {auto: 'automatyczny', light: 'jasny', dark: 'czarny'};
 
 let me = null, current = '', seq = 0, liveN = 0, shopQ = '', hasSun = false, kbQ = '', kbCat = '';
@@ -86,7 +91,7 @@ const VIEWS = {
   start: {fn: vStart, role: 'farmer', live: true}, jaja: {fn: vEggs, role: 'farmer'}, sterowanie: {fn: vControl, role: 'farmer', live: true},
   zamowienia: {fn: vOrders, role: 'farmer'}, wiecej: {fn: vMore, role: 'farmer'}, klienci: {fn: vClients, role: 'farmer'}, sprzedaz: {fn: vSale, role: 'farmer'},
   oferta: {fn: vOffer, role: 'farmer'}, stado: {fn: vFlock, role: 'farmer'}, sterowniki: {fn: vDevices, role: 'farmer'},
-  raporty: {fn: vReports, role: 'farmer'}, ustawienia: {fn: vSettings, role: 'farmer'}, wiedza: {fn: vKb, role: 'farmer'}, wydatki: {fn: vExpenses, role: 'farmer'}, pasza: {fn: vFeed, role: 'farmer'}, 'admin-import': {fn: vAdminImport, role: 'admin'}, wyposazenie: {fn: vEquipment, role: 'farmer'},
+  raporty: {fn: vReports, role: 'farmer'}, analityka: {fn: vAnalytics, role: 'farmer'}, ustawienia: {fn: vSettings, role: 'farmer'}, wiedza: {fn: vKb, role: 'farmer'}, wydatki: {fn: vExpenses, role: 'farmer'}, pasza: {fn: vFeed, role: 'farmer'}, 'admin-import': {fn: vAdminImport, role: 'admin'}, wyposazenie: {fn: vEquipment, role: 'farmer'},
   admin: {fn: () => vAdmin('dev'), role: 'admin'}, 'admin-cfg': {fn: () => vAdmin('cfg'), role: 'admin'}, 'admin-tools': {fn: () => vAdmin('tools'), role: 'admin'},
   'admin-kb': {fn: vAdminKb, role: 'admin'},
 };
@@ -139,6 +144,7 @@ function orderForm(id, name) {
     ${fld('Ilość opakowań (po 10 szt.)', 'qty', 'number', 'min="1" max="50" value="1" required inputmode="numeric"')}
     ${sel('Jak często', 'mode', [['once', 'Jednorazowo'], ['weekly', 'Co tydzień'], ['biweekly', 'Co 2 tygodnie']])}
     ${sel('Odbiór', 'pickup', [['pickup', 'Odbiorę osobiście'], ['delivery', 'Dowóz przez rolnika']])}
+    ${fld('Kiedy (opcjonalnie)', 'due_date', 'date', `min="${ymd()}" max="${ymd(new Date(Date.now() + 60 * 864e5))}"`)}
     <p class="mu">Zamówienie jest wiążące po potwierdzeniu przez rolnika. Płatność przy odbiorze.</p>
     <div class="actions"><button class="pri">Wyślij zamówienie</button><button type="button" data-act="cancelorder">Anuluj</button></div></form></div>`;
   $('#orderbox').scrollIntoView && $('#orderbox').scrollIntoView({block: 'start'});
@@ -255,56 +261,77 @@ const EGG = {collect: ['🥚', 'Zbiór'], sort: ['🧽', 'Sortowanie'], sale: ['
 function eggText(e) {
   if (e.kind === 'sort') return `${e.eggs} dobrych${e.dirty ? `, ${e.dirty} brudnych` : ''}${e.damaged ? `, ${e.damaged} uszkodzonych` : ''}`;
   if (e.kind === 'inventory') return `${e.eggs > 0 ? '+' : ''}${e.eggs} szt.`;
-  return `${e.eggs} szt.${e.kind === 'gift' && e.who ? ' · ' + esc(e.who) : ''}`;
+  return `${e.eggs} szt.${e.pool === 'dirty' ? ' brudnych' : ''}${e.kind === 'gift' && e.who ? ' · ' + esc(e.who) : ''}`;
 }
-const eggLog = es => es.slice(0, 15).map(e => `<li><time datetime="${esc(e.at)}">${today(e.at) ? hm(e.at) : day(e.at)}</time>
-  <div class="tb"><b>${EGG[e.kind][0]} ${EGG[e.kind][1]}: ${eggText(e)}</b>${e.note ? `<span class="mu">${esc(e.note)}</span>` : ''}</div></li>`).join('')
-  || '<li class="mu">Brak wpisów z ostatnich 30 dni.</li>';
-const poolRows = p => `<div class="stats">${p.unsorted ? stat('Do sortowania', p.unsorted + ' szt.', 'zebrane, jeszcze nie posortowane') : ''}
-  ${stat('W magazynie (dobre)', p.eggs + ' szt.', '≈ ' + Math.floor(p.eggs / 10) + ' opak.')}
-  ${stat('Ogłoszone w sklepie', p.offer_packs + ' opak.', p.offer_packs * 10 + ' szt.')}${stat('Rezerwa stałych klientów', p.reserved + ' szt.')}
-  ${p.committed ? stat('Do wydania (zamówienia)', p.committed + ' szt.') : ''}${stat('Wolne', p.free + ' szt.', 'do sprzedaży i rozdania')}</div>`;
+let EGGS = {}, BLD = {};  // wpisy dziennika jaj po id (do poprawiania), nazwy budynków
+const eggLi = e => `<li data-egg="${e.id}"><time datetime="${esc(e.at)}">${today(e.at) ? hm(e.at) : day(e.at)}</time>
+  <div class="tb"><b>${EGG[e.kind][0]} ${EGG[e.kind][1]}: ${eggText(e)}</b>${[BLD[e.building_id] && '🏠 ' + esc(BLD[e.building_id]), e.note && esc(e.note), byWho(e) && '👤 ' + byWho(e)].filter(Boolean).length
+    ? `<span class="mu">${[BLD[e.building_id] && '🏠 ' + esc(BLD[e.building_id]), e.note && esc(e.note), byWho(e) && '👤 ' + byWho(e)].filter(Boolean).join(' · ')}</span>` : ''}</div>
+  ${e.kind === 'sale' ? '' : `<button class="sm ghost" data-act="eggedit" data-id="${e.id}" aria-label="Popraw wpis: ${EGG[e.kind][1]}">Popraw</button>`}</li>`;
+const eggLog = es => es.slice(0, 40).map(eggLi).join('') || '<li class="mu">Brak wpisów z ostatnich 30 dni.</li>';
+function eggEditForm(e) {
+  const n = ['collect', 'gift', 'loss'].includes(e.kind);
+  return `<form data-f="eggedit" data-id="${e.id}"><b>${EGG[e.kind][0]} ${EGG[e.kind][1]}: ${eggText(e)}</b>
+    <div class="row"><div>${dateIn('ee-d' + e.id, e.at.slice(0, 10))}</div>
+    ${n ? `<div><label for="ee-n${e.id}">Liczba jaj</label><input id="ee-n${e.id}" name="eggs" type="number" min="1" value="${e.eggs}" required inputmode="numeric"></div>` : ''}
+    ${e.kind === 'gift' ? `<div><label for="ee-w${e.id}">Komu</label><input id="ee-w${e.id}" name="who" value="${esc(e.who)}" required maxlength="60"></div>` : ''}</div>
+    <label for="ee-o${e.id}">Uwagi</label><input id="ee-o${e.id}" name="note" value="${esc(e.note)}" maxlength="200">
+    ${e.kind === 'sort' ? '<p class="mu">Liczby z sortowania zmienisz, usuwając wpis i sortując ponownie.</p>' : ''}
+    <div class="actions"><button class="pri sm">Zapisz poprawkę</button><button type="button" class="sm" data-act="retry">Anuluj</button>
+    <button type="button" class="sm ghost danger" data-act="eggdel" data-id="${e.id}">Usuń wpis</button></div></form>`;
+}
+const poolRows = p => `<div class="stats">${p.unsorted ? stat('Do sortowania', p.unsorted + ' szt.', 'zebrane, nieposortowane') : ''}
+  ${stat('Magazyn (dobre)', p.eggs + ' szt.', '≈ ' + Math.floor(p.eggs / 10) + ' opak.')}
+  ${stat('W sklepie', p.offer_packs + ' opak.', p.offer_packs * 10 + ' szt.')}${stat('Rezerwa', p.reserved + ' szt.', 'stali klienci')}
+  ${p.committed ? stat('Do wydania', p.committed + ' szt.', 'potwierdzone zamówienia') : ''}${stat('Wolne', p.free + ' szt.', 'do sprzedaży i rozdania')}
+  ${p.dirty ? stat('Brudne', p.dirty + ' szt.', 'sprzedaż na miejscu, rozdanie') : ''}</div>`;
+const poolSel = (id, p) => `<label for="${id}">Które jaja</label><select id="${id}" name="pool"><option value="good">Dobre (${p.free} wolnych)</option>
+  <option value="dirty"${p.dirty ? '' : ' disabled'}>Brudne (${p.dirty} szt.)</option></select>`;
 const reminderBox = () => `<div class="alert bad" role="status"><b>⏰ Nie wpisano dzisiejszego zbioru</b>Wpisz go teraz, żeby stan jaj się zgadzał.
   <div class="actions" style="margin-top:.5rem"><button class="pri sm" data-act="go" data-v="jaja/zbior">Wpisz zbiór</button></div></div>`;
 async function vEggs(arg) {
-  const [f, lg] = await Promise.all([load('/api/my/farm'), load('/api/my/eggs?days=30')]), p = lg.stock;
-  const gifts = Object.entries(lg.given_to);
+  const [f, lg, bs] = await Promise.all([load('/api/my/farm'), load('/api/my/eggs?days=30'), load('/api/my/buildings')]), p = lg.stock;
+  const gifts = Object.entries(lg.given_to), builds = Object.entries(lg.by_building || {});
+  EGGS = Object.fromEntries(lg.entries.map(e => [e.id, e])); BLD = Object.fromEntries(bs.map(b => [b.id, b.name]));
   return {html: `<h1>Jaja</h1>${lg.reminder_due ? reminderBox() : ''}<section class="card" data-pools>${poolRows(p)}</section>
-    <div class="grid">
-    <form class="card" data-f="collect" id="f-zbior"><h2>🥚 Zbiór</h2><p class="mu">Wpisz wszystkie zebrane jaja. Trafią do sortowania.</p>
-      <label for="n-zbior">Zebrane jaja (szt.)</label><input id="n-zbior" name="eggs" type="number" min="1" max="100000" required inputmode="numeric">
-      <label for="o-zbior">Uwagi</label><input id="o-zbior" name="note" maxlength="200" placeholder="np. kurnik 2">
+    <div class="grid two">
+    <form class="card" data-f="collect" id="f-zbior"><h2>🥚 Zbiór</h2><p class="mu">Wszystkie zebrane jaja. Trafią do sortowania.</p>
+      <div class="row"><div><label for="n-zbior">Zebrane (szt.)</label><input id="n-zbior" name="eggs" type="number" min="1" max="100000" required inputmode="numeric"></div>
+      ${bs.length ? `<div><label for="b-zbior">Budynek</label><select id="b-zbior" name="building_id"><option value="">— cała farma —</option>${bs.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>` : ''}</div>
+      <div class="row"><div>${dateIn('d-zbior')}</div><div><label for="o-zbior">Uwagi</label><input id="o-zbior" name="note" maxlength="200" placeholder="np. gniazda przy oknie"></div></div>
       <div class="actions"><button class="pri">Zapisz zbiór</button></div></form>
     <form class="card" data-f="sort" id="f-sort"><h2>🧽 Sortowanie</h2><p class="mu">Do sortowania: <b data-unsorted>${p.unsorted} szt.</b>
-      Dobre trafią do magazynu. Brudne i uszkodzone nie idą do sprzedaży.</p>
-      <div class="row tight"><div><label for="so-g">Dobre</label><input id="so-g" name="good" type="number" min="0" value="${p.unsorted}" inputmode="numeric"></div>
+      Dobre idą do magazynu i sklepu, brudne osobno (sprzedasz je na miejscu albo rozdasz), uszkodzone odpadają.</p>
+      <div class="row three"><div><label for="so-g">Dobre</label><input id="so-g" name="good" type="number" min="0" value="${p.unsorted}" inputmode="numeric"></div>
       <div><label for="so-d">Brudne</label><input id="so-d" name="dirty" type="number" min="0" value="0" inputmode="numeric"></div>
       <div><label for="so-u">Uszkodzone</label><input id="so-u" name="damaged" type="number" min="0" value="0" inputmode="numeric"></div></div>
-      <p class="mu" data-sortsum aria-live="polite"></p>
+      <p class="mu" data-sortsum aria-live="polite"></p>${dateIn('so-dt')}
       <div class="actions"><button class="pri"${p.unsorted ? '' : ' disabled'}>Zapisz sortowanie</button></div></form>
-    <form class="card" data-f="alloc"><h2>🏷️ Sklep i rezerwa</h2><p class="mu">Ile opakowań ogłaszasz w sklepie, a ile sztuk odkładasz dla stałych klientów.</p>
-      <div class="row tight"><div><label for="al-o">W sklepie (opak. po 10 szt.)</label><input id="al-o" name="offer_packs" type="number" min="0" value="${p.offer_packs}" required inputmode="numeric"></div>
-      <div><label for="al-r">Rezerwa (szt.)</label><input id="al-r" name="reserved" type="number" min="0" value="${p.reserved}" required inputmode="numeric"></div></div>
-      ${lg.reserve_needed_7d ? `<p class="mu">Stali klienci w najbliższych 7 dniach: <b>${lg.reserve_needed_7d} szt.</b>
-        <button type="button" class="sm" data-act="reserveneed" data-v="${lg.reserve_needed_7d}">Zarezerwuj tyle</button></p>` : ''}
-      <p class="mu" data-allocsum aria-live="polite"></p><div class="actions"><button class="pri">Zapisz</button></div></form>
-    <form class="card" data-f="gift"><h2>🎁 Rozdane</h2><p class="mu">Jaja dla rodziny i znajomych (np. mama), żeby wiedzieć, ile idzie poza sprzedaż.</p>
-      <div class="row tight"><div><label for="gi-n">Ile sztuk</label><input id="gi-n" name="eggs" type="number" min="1" required inputmode="numeric"></div>
+    <form class="card" data-f="gift"><h2>🎁 Rozdane</h2><p class="mu">Jaja dla rodziny i znajomych, żeby wiedzieć, ile idzie poza sprzedaż.</p>
+      <div class="row"><div><label for="gi-n">Ile sztuk</label><input id="gi-n" name="eggs" type="number" min="1" required inputmode="numeric"></div>
       <div><label for="gi-w">Komu</label><input id="gi-w" name="who" list="gi-list" required maxlength="60" placeholder="np. mama"></div></div>
       <datalist id="gi-list">${['Mama', 'Rodzina', ...lg.recipients].filter((x, i, a) => a.indexOf(x) === i).map(w => `<option value="${esc(w)}">`).join('')}</datalist>
-      <label for="gi-o">Uwagi</label><input id="gi-o" name="note" maxlength="200">
+      <div class="row"><div>${poolSel('gi-p', p)}</div><div>${dateIn('gi-d')}</div></div>
       ${gifts.length ? `<p class="mu">W 30 dni: ${gifts.map(([w, n]) => `${esc(w)} ${n} szt.`).join(' · ')}</p>` : ''}
-      <div class="actions"><button class="pri">Zapisz rozdane</button></div></form></div>
-    <div class="card"><h2>🧺 Sprzedaż</h2><p class="mu">Sprzedaż z magazynu, rezerwy albo ogłoszonych opakowań, ze sposobem płatności i kartoteką klienta.</p>
+      <div class="actions"><button class="pri">Zapisz rozdane</button></div></form>
+    <form class="card" data-f="alloc"><h2>🏷️ Sklep i rezerwa</h2><p class="mu">Ile opakowań po 10 szt. ogłaszasz w sklepie, a ile sztuk odkładasz dla stałych klientów.</p>
+      <div class="row"><div><label for="al-o">W sklepie (opak.)</label><input id="al-o" name="offer_packs" type="number" min="0" value="${p.offer_packs}" required inputmode="numeric"></div>
+      <div><label for="al-r">Rezerwa (szt.)</label><input id="al-r" name="reserved" type="number" min="0" value="${p.reserved}" required inputmode="numeric"></div></div>
+      ${lg.reserve_needed_7d ? `<p class="mu">Stali klienci w 7 dni: <b>${lg.reserve_needed_7d} szt.</b>
+        <button type="button" class="sm" data-act="reserveneed" data-v="${lg.reserve_needed_7d}">Zarezerwuj tyle</button></p>` : ''}
+      <p class="mu" data-allocsum aria-live="polite"></p><div class="actions"><button class="pri">Zapisz</button></div></form></div>
+    <section class="card"><h2>🧺 Sprzedaż, straty, inwentaryzacja</h2><p class="mu">Sprzedaż z magazynu, rezerwy, sklepu albo brudnych, ze sposobem płatności i kartoteką klienta.</p>
       <div class="actions"><button class="pri" data-act="go" data-v="sprzedaz">Zapisz sprzedaż</button></div>
       <details><summary>💥 Strata (stłuczone, zepsute)</summary><form data-f="loss"><div class="row"><div><label for="ls-n">Ile sztuk</label>
-        <input id="ls-n" name="eggs" type="number" min="1" required inputmode="numeric"></div><div><label for="ls-o">Powód</label><input id="ls-o" name="note" maxlength="200" placeholder="np. stłuczone przy pakowaniu"></div></div>
+        <input id="ls-n" name="eggs" type="number" min="1" required inputmode="numeric"></div><div>${poolSel('ls-p', p)}</div></div>
+        <div class="row"><div>${dateIn('ls-d')}</div><div><label for="ls-o">Powód</label><input id="ls-o" name="note" maxlength="200" placeholder="np. stłuczone przy pakowaniu"></div></div>
         <div class="actions"><button>Zapisz stratę</button></div></form></details>
       <details><summary>📋 Inwentaryzacja (policzyłem jaja)</summary><p class="mu">Wpisz, ile dobrych jaj naprawdę leży w magazynie. Portal poprawi stan.</p>
-        <form data-f="inventory"><div class="row"><div><label for="in-n">Policzone jaja (szt.)</label><input id="in-n" name="eggs" type="number" min="0" value="${p.eggs}" required inputmode="numeric"></div>
-        <div><label for="in-o">Uwagi</label><input id="in-o" name="note" maxlength="200"></div></div><div class="actions"><button>Zapisz stan</button></div></form></details></div>
+        <form data-f="inventory"><div class="row"><div><label for="in-n">Policzone dobre (szt.)</label><input id="in-n" name="eggs" type="number" min="0" value="${p.eggs}" required inputmode="numeric"></div>
+        <div><label for="in-o">Uwagi</label><input id="in-o" name="note" maxlength="200"></div></div><div class="actions"><button>Zapisz stan</button></div></form></details></section>
     <section class="card"><h2>Ostatnie wpisy</h2><p class="mu">Z 30 dni: zebrano ${lg.collected} szt. (dobrych ${lg.good}, brudnych ${lg.dirty}, uszkodzonych ${lg.damaged}),
-      sprzedano ${lg.sold} szt., rozdano ${lg.given} szt., straty ${lg.lost} szt. Cena w sklepie: ${zl(f.price10)} za 10 szt. (<a href="#/oferta">zmień</a>).</p>
+      sprzedano ${lg.sold} szt., rozdano ${lg.given} szt., straty ${lg.lost} szt.${builds.length ? ` Zbiory wg budynków: ${builds.map(([b, n]) => `${esc(b)} ${n} szt.`).join(' · ')}.` : ''}
+      Cena w sklepie: ${zl(f.price10)} za 10 szt. (<a href="#/oferta">zmień</a>). Wpis z błędem popraw przyciskiem „Popraw”.</p>
     <ul class="list log" data-egglog>${eggLog(lg.entries)}</ul></section>`,
   after: () => { allocSum($('form[data-f=alloc]'), p); sortSum($('form[data-f=sort]')); const i = arg === 'zbior' && $('#n-zbior'); if (i) i.focus() }};
 }
@@ -331,7 +358,10 @@ function orderRow(o) {
   const st = ORDER_ST[o.status] || ['', o.status];
   return `<div class="orow" data-order="${o.id}"><div><b>${o.client_id ? `<a href="#/klienci/${o.client_id}">${esc(o.name)}</a>` : esc(o.name)}</b> ·
     <a href="tel:${esc(o.phone.replace(/\s/g, ''))}">${esc(o.phone)}</a><br>
-    ${o.qty} opak. · ${zl(o.total)}<br><span class="mu">${MODE[o.mode]} · ${o.pickup === 'pickup' ? 'odbiór osobisty' : 'dowóz'} · ${day(o.created)}</span></div>
+    ${o.qty} opak. · ${zl(o.total)}${o.due_date ? ` · <b>📅 ${o.pickup === 'pickup' ? 'odbiór' : 'dowóz'} ${dmy(o.due_date)}</b>` : ''}<br>
+    <span class="mu">${MODE[o.mode]} · ${o.pickup === 'pickup' ? 'odbiór osobisty' : 'dowóz'} · złożone ${day(o.created)}</span>
+    ${['pending', 'confirmed'].includes(o.status) ? `<details class="due"><summary>📅 ${o.due_date ? 'Zmień termin' : 'Ustal termin'}</summary><form data-f="due" data-id="${o.id}" class="inl">
+      <label for="du${o.id}" class="sr-only">Termin</label><input id="du${o.id}" name="due_date" type="date" value="${esc(o.due_date || '')}"><button class="sm">Zapisz termin</button></form></details>` : ''}</div>
     <div class="seg">${o.status === 'pending' ? `<button class="pri" data-act="confirm" data-id="${o.id}">Potwierdź</button><button data-act="reject" data-id="${o.id}">Odrzuć</button>`
     : `<span class="badge ${st[0]}">${st[1]}</span>${o.status === 'confirmed' ? `<button class="pri" data-act="go" data-v="sprzedaz/zam-${o.id}">Wydaj i rozlicz</button>` : ''}`}</div></div>`;
 }
@@ -349,8 +379,34 @@ const subForm = (cs, cid) => `<form data-f="sub"><div class="row">${cid ? `<inpu
   <div><label for="sb-m">Jak zwykle płaci</label><select id="sb-m" name="method">${Object.entries(PAY).map(([k, [, t]]) => `<option value="${k}"${k === 'later' ? ' selected' : ''}>${t}</option>`).join('')}</select></div></div>
   <label for="sb-u">Uwagi</label><input id="sb-u" name="notes" maxlength="200" placeholder="np. odbiera w sobotę rano">
   <div class="actions"><button class="pri">Dodaj zamówienie cykliczne</button></div></form>`;
+let calMonth = ymd().slice(0, 7), calDay = ymd(), CAL = {};
+const CALI = {order: '📋', sub: '🔁', sales: '🧺', collect: '🥚'};
+function calItem(i) {
+  if (i.type === 'order') return `<li><span class="ti" aria-hidden="true">📋</span><div class="tb"><b>${esc(i.name)} · ${i.packs} opak.</b><span class="mu">${i.status === 'pending' ? 'czeka na potwierdzenie' : 'do wydania'} · ${i.pickup === 'pickup' ? 'odbiór' : 'dowóz'}${i.due ? '' : ' · bez terminu (dzień złożenia)'}</span></div></li>`;
+  if (i.type === 'sub') return `<li><span class="ti" aria-hidden="true">🔁</span><div class="tb"><b>${esc(i.name)} · ${i.eggs} szt.</b><span class="mu">stały klient</span></div></li>`;
+  if (i.type === 'sales') return `<li><span class="ti" aria-hidden="true">🧺</span><div class="tb"><b>Sprzedaż: ${i.eggs} szt. · ${zl(i.total)}</b><span class="mu">${i.count} ${i.count === 1 ? 'sprzedaż' : 'sprzedaży'}</span></div></li>`;
+  return `<li><span class="ti" aria-hidden="true">🥚</span><div class="tb"><b>Zebrano ${i.eggs} szt.</b></div></li>`;
+}
+function calendar() {
+  const first = new Date(calMonth + '-01T12:00:00'), n = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate(), lead = (first.getDay() + 6) % 7;
+  const cells = Array.from({length: lead}, () => '<div class="cd out" aria-hidden="true"></div>');
+  for (let d = 1; d <= n; d++) {
+    const k = `${calMonth}-${String(d).padStart(2, '0')}`, it = CAL.days[k] || [], cnt = t => it.filter(i => i.type === t).length;
+    const marks = ['order', 'sub', 'sales'].filter(t => cnt(t)).map(t => `<span>${CALI[t]}${cnt(t) > 1 ? cnt(t) : ''}</span>`).join('');
+    cells.push(`<button class="cd${k === ymd() ? ' now' : ''}" data-act="calday" data-v="${k}" aria-pressed="${k === calDay}"
+      aria-label="${d} ${first.toLocaleDateString('pl-PL', {month: 'long'})}: ${it.length ? it.map(i => ({order: 'zamówienie', sub: 'stały klient', sales: 'sprzedaż', collect: 'zbiór'})[i.type]).join(', ') : 'brak wpisów'}">
+      <b>${d}</b><small>${marks}</small></button>`);
+  }
+  const items = CAL.days[calDay] || [];
+  return `<div class="calnav"><button class="sm" data-act="calmonth" data-v="-1" aria-label="Poprzedni miesiąc">‹</button>
+    <b>${first.toLocaleDateString('pl-PL', {month: 'long', year: 'numeric'})}</b><button class="sm" data-act="calmonth" data-v="1" aria-label="Następny miesiąc">›</button></div>
+    <div class="cal" role="group" aria-label="Dni miesiąca">${['Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'So', 'Nd'].map(x => `<div class="cw" aria-hidden="true">${x}</div>`).join('')}${cells.join('')}</div>
+    <p class="mu">📋 zamówienie ze sklepu · 🔁 stały klient · 🧺 sprzedaż</p>
+    <h3>${calDay.slice(0, 7) === calMonth ? dmy(calDay) : 'Wybierz dzień'}</h3><ul class="list">${calDay.slice(0, 7) === calMonth ? items.map(calItem).join('') || '<li class="mu">Nic zaplanowanego.</li>' : ''}</ul>`;
+}
 async function vOrders() {
-  const [os, subs, cs] = await Promise.all([load('/api/my/orders'), load('/api/my/subscriptions'), load('/api/my/clients')]);
+  const [os, subs, cs, cal] = await Promise.all([load('/api/my/orders'), load('/api/my/subscriptions'), load('/api/my/clients'), load('/api/my/calendar?month=' + calMonth)]);
+  CAL = cal;
   const p = os.filter(o => o.status === 'pending'), c = os.filter(o => o.status === 'confirmed'), due = subs.filter(x => x.due);
   const rest = os.filter(o => !['pending', 'confirmed'].includes(o.status));
   return `<h1>Zamówienia</h1><section class="card"><h2>Czekają na potwierdzenie (${p.length})</h2>${p.map(orderRow).join('')
@@ -360,6 +416,7 @@ async function vOrders() {
       <p class="mu">Wydanie odejmuje jaja z rezerwy (Jaja → Sklep i rezerwa) i zapisuje płatność w kartotece. Następna dostawa ustawia się sama.</p>
       <ul class="list" data-subs>${subs.map(subRow).join('') || '<li class="mu">Brak zamówień cyklicznych. Dodaj klienta, który bierze jaja regularnie.</li>'}</ul>
       <details${subs.length ? '' : ' open'}><summary>➕ Nowe zamówienie cykliczne</summary>${cs.length ? subForm(cs) : '<p class="mu">Najpierw dodaj klienta w <a href="#/klienci">kartotece</a>.</p>'}</details></section>
+    <section class="card" data-calendar><h2>📅 Kalendarz</h2>${calendar()}</section>
     ${rest.length ? `<section class="card"><h2>Rozpatrzone</h2>${rest.map(orderRow).join('')}</section>` : ''}`;
 }
 
@@ -434,12 +491,15 @@ async function vClientCard(id) {
   return {html, after: () => payPreview($('form[data-f=payment]'))};
 }
 function saleRows(ss) {
+  SALES = Object.fromEntries(ss.map(s => [s.id, s]));
   return ss.slice(0, 30).map(s => `<li data-sale="${s.id}"><time datetime="${esc(s.at)}">${today(s.at) ? hm(s.at) : day(s.at)}</time><div class="tb">
     <b>${s.client_id ? `<a href="#/klienci/${s.client_id}">${esc(s.client_name)}</a>` : 'Bez kartoteki'} · ${s.eggs} szt. · ${zl(s.total)}</b>
-    <span class="mu">${PAY[s.method][0]} ${PAY[s.method][1]}${['cash', 'transfer', 'blik'].includes(s.method) && Math.abs(s.paid - s.total) > 0.005 ? ` · zapłacono ${zl(s.paid)}` : ''}${s.order_id ? ' · zamówienie ze sklepu' : s.subscription_id ? ' · stały klient' : ''}${s.notes ? ' · ' + esc(s.notes) : ''}</span></div>
-    <button class="sm ghost danger" data-act="delsale" data-id="${s.id}" aria-label="Usuń sprzedaż">Usuń</button></li>`).join('') || '<li class="mu">Brak sprzedaży w ostatnich 30 dniach.</li>';
+    <span class="mu">${PAY[s.method][0]} ${PAY[s.method][1]}${['cash', 'transfer', 'blik'].includes(s.method) && Math.abs(s.paid - s.total) > 0.005 ? ` · zapłacono ${zl(s.paid)}` : ''}${s.order_id ? ' · zamówienie ze sklepu' : s.subscription_id ? ' · stały klient' : ''}${s.source === 'dirty' ? ' · brudne' : ''}${s.notes ? ' · ' + esc(s.notes) : ''}${s.by_name ? ' · 👤 ' + esc(s.by_name) : ''}</span></div>
+    <div class="seg"><button class="sm ghost" data-act="saleedit" data-id="${s.id}" aria-label="Popraw datę lub uwagi">Popraw</button>
+    <button class="sm ghost danger" data-act="delsale" data-id="${s.id}" aria-label="Usuń sprzedaż">Usuń</button></div></li>`).join('') || '<li class="mu">Brak sprzedaży w ostatnich 30 dniach.</li>';
 }
-const SOURCE = {free: 'Wolne z magazynu', reserve: 'Z rezerwy stałych klientów', offer: 'Z ogłoszonych w sklepie (całe opakowania)'};
+const SOURCE = {free: 'Wolne z magazynu', reserve: 'Z rezerwy stałych klientów', offer: 'Z ogłoszonych w sklepie (całe opakowania)', dirty: 'Brudne (sprzedaż na miejscu)'};
+let SALES = {};
 let SALE = {};  // dane formularza sprzedaży: klienci, cena z oferty, zamówienie, zamówienie cykliczne
 async function vSale(arg) {
   const [cs, farm, ss, orders, subs, eg] = await Promise.all([load('/api/my/clients'), load('/api/my/farm'), load('/api/my/sales?days=30'),
@@ -453,7 +513,7 @@ async function vSale(arg) {
   return {html: `<h1>Sprzedaż</h1><form class="card" data-f="sale" data-order="${order ? order.id : ''}" data-sub="${sub ? sub.id : ''}">
     ${order ? `<div class="alert"><b>Wydanie zamówienia ze sklepu: ${esc(order.name)}</b>${order.qty} opak. (${order.qty * 10} szt.) · ${zl(order.total)}</div>`
       : `${sub ? `<div class="alert"><b>Stały klient: ${esc(sub.client_name)}</b>${sub.eggs} szt. co ${sub.every_days} dni</div>` : ''}
-      <p class="mu" data-poolinfo>Wolne: <b>${p.free} szt.</b> · rezerwa: <b>${p.reserved} szt.</b> · w sklepie: <b>${p.offer_packs} opak.</b></p>`}
+      <p class="mu" data-poolinfo>Wolne: <b>${p.free} szt.</b> · rezerwa: <b>${p.reserved} szt.</b> · w sklepie: <b>${p.offer_packs} opak.</b>${p.dirty ? ` · brudne: <b>${p.dirty} szt.</b>` : ''}</p>`}
     <label for="sc">Klient</label><select id="sc" name="client_id"${order || sub ? ' disabled' : ''}>${opts}</select>
     <p class="mu" data-sbal></p>
     ${order ? '' : `<div class="row"><div><label for="se">Ile jaj (szt.)</label><input id="se" name="eggs" type="number" min="1" max="5000" value="${sub ? sub.eggs : 10}" required inputmode="numeric">
@@ -466,7 +526,7 @@ async function vSale(arg) {
       <div data-paidbox><label for="sa">Ile zapłacił (zł)</label><input id="sa" name="paid" type="number" step="0.01" min="0" inputmode="decimal">
       <div class="seg" style="margin-top:.4rem"><button type="button" class="sm" data-act="paidall">Całość</button><button type="button" class="sm" data-act="paidzero">Całość + stary dług (rozlicz do zera)</button></div>
       <p class="mu">Wpisz, ile zostaje u Ciebie. Mniej niż do zapłaty: różnica idzie na dług. Więcej: nadpłata na kolejne zakupy.</p></div></fieldset>
-    <label for="sn">Uwagi</label><input id="sn" name="notes" maxlength="200">
+    <div class="row"><div>${dateIn('sdt')}</div><div><label for="sn">Uwagi</label><input id="sn" name="notes" maxlength="200"></div></div>
     <div class="alert" style="background:var(--sf2);border-color:var(--ln)" data-ssum aria-live="polite"></div>
     <div class="actions"><button class="pri">${order || sub ? 'Wydaj i zapisz' : 'Zapisz sprzedaż'}</button></div></form>
     <section class="card"><h2>Ostatnie sprzedaże (30 dni)</h2><ul class="list log" data-sales>${saleRows(ss)}</ul></section>`,
@@ -499,6 +559,61 @@ async function vReports() {
     ${stat('Do wydania', os.filter(o => o.status === 'confirmed').length)}${stat('Wydane', os.filter(o => o.status === 'delivered').length)}${stat('Odrzucone', os.filter(o => o.status === 'rejected').length)}</div></section>`;
 }
 
+// ---------- Analityka: każdy wykres to jedna miara na jednej osi, dymek po najechaniu, tabela pod spodem ----------
+let anDays = 90;
+function lineChart(cid, pts, key, unit, cls, label, fmt) {
+  const v = pts.filter(p => p[key] != null);
+  if (v.length < 2) return `<figure><figcaption>${label}</figcaption><p class="mu">Za mało danych, aby narysować wykres.</p></figure>`;
+  const W = 320, H = 140, L = 34, R = 12, T = 10, B = 20, vals = v.map(p => p[key]);
+  let hi = Math.max(...vals); hi = hi <= 0 ? 1 : hi * 1.12; const lo = 0;
+  const x = i => L + i / (v.length - 1) * (W - L - R), y = val => T + (hi - val) / (hi - lo) * (H - T - B);
+  const xy = v.map((p, i) => [x(i), y(p[key])]), lab = p => dmy(p.date);
+  CHART[cid] = {v, xy, key, unit, W, lab, fmt};
+  const grid = [0, hi / 2, hi].map(g => `<line class="gl" x1="${L}" x2="${W - R}" y1="${y(g)}" y2="${y(g)}"/><text x="${L - 4}" y="${y(g) + 3}" text-anchor="end">${nf(g, 0)}</text>`).join('');
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+  return `<figure><figcaption>${label}</figcaption><div class="chart" data-cid="${cid}"><svg viewBox="0 0 ${W} ${H}" role="img"
+    aria-label="${label}: średnio ${nf(avg, 1)}${unit}, najwięcej ${nf(Math.max(...vals), 1)}${unit}">${grid}
+    <text x="${L}" y="${H - 4}">${lab(v[0])}</text><text x="${W - R}" y="${H - 4}" text-anchor="end">${lab(v[v.length - 1])}</text>
+    <polyline class="ln ${cls}" points="${xy.map(p => p.map(n => n.toFixed(1)).join(',')).join(' ')}"/>
+    <line class="cross" data-cross y1="${T}" y2="${H - B}" x1="0" x2="0" visibility="hidden"/><circle class="dot ${cls}" data-hdot r="4" cx="0" cy="0" visibility="hidden"/></svg>
+    <div class="tip" hidden></div></div></figure>`;
+}
+function monthBars(ms) {
+  const wide = (window.innerWidth || 0) >= 700, W = wide ? 640 : 320, H = wide ? 220 : 160, L = 40, R = 8, T = 10, B = 22, hi = Math.max(1, ...ms.map(m => Math.max(m.revenue, m.expenses))) * 1.1;
+  const slot = (W - L - R) / ms.length, bw = Math.max(4, Math.min(wide ? 28 : 16, slot / 2 - 3)), y = v => T + (hi - v) / hi * (H - T - B);
+  const bar = (cx, v, cls, t) => v > 0 ? `<path class="bar ${cls}" d="M${cx},${y(0)} V${y(v) + 3} q0,-3 3,-3 h${bw - 6} q3,0 3,3 V${y(0)} Z"><title>${t}</title></path>` : '';
+  const mname = m => new Date(m + '-15').toLocaleDateString('pl-PL', {month: 'short'});
+  return `<figure><figcaption>Przychody i wydatki w miesiącach (zł)</figcaption>
+    <div class="legend"><span><i class="sw-r"></i>Przychody ze sprzedaży</span><span><i class="sw-e"></i>Wydatki</span></div>
+    <div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Przychody i wydatki w miesiącach, szczegóły w tabeli poniżej">
+    ${[0, hi / 2, hi].map(g => `<line class="gl" x1="${L}" x2="${W - R}" y1="${y(g)}" y2="${y(g)}"/><text x="${L - 4}" y="${y(g) + 3}" text-anchor="end">${nf(g, 0)}</text>`).join('')}
+    ${ms.map((m, i) => { const cx = L + i * slot + slot / 2; return bar(cx - bw - 1, m.revenue, 'r', `${mname(m.month)}: przychody ${zl(m.revenue)}`)
+      + bar(cx + 1, m.expenses, 'e', `${mname(m.month)}: wydatki ${zl(m.expenses)}`) + `<text x="${cx}" y="${H - 6}" text-anchor="middle">${mname(m.month)}</text>` }).join('')}
+    </svg></div></figure>`;
+}
+const hbars = (rows, val, fmt) => { const mx = Math.max(1e-9, ...rows.map(val)); return `<ul class="list hb">${rows.map(r => `<li><div class="tb"><span>${r.label}</span>
+  <span class="cbar" style="--w:${(val(r) / mx * 100).toFixed(1)}%" aria-hidden="true"></span></div><b>${fmt(val(r))}</b></li>`).join('')}</ul>` };
+async function vAnalytics() {
+  const a = await load('/api/my/analytics?days=' + anDays), t = a.totals;
+  const meth = Object.entries(a.methods).map(([k, v]) => ({label: (PAY[k] || ['', k]).join(' '), v})).sort((x, y) => y.v - x.v);
+  return `<h1>Analityka</h1><div class="seg" role="group" aria-label="Okres">${[[30, '30 dni'], [90, '3 miesiące'], [365, 'Rok']].map(([d, l]) =>
+    `<button class="sm" data-act="andays" data-v="${d}" aria-pressed="${d === anDays}">${l}</button>`).join('')}</div>
+    <section class="card" style="margin-top:.8rem"><div class="stats">${stat('Zebrane', t.collected + ' szt.', t.days_logged ? nf(t.collected / t.days_logged, 0) + ' dziennie (dni ze zbiorem)' : 'brak wpisów')}
+      ${stat('Nieśność', t.laying != null ? nf(t.laying, 0) + ' %' : '–', a.birds ? `${a.birds} kur` : 'dodaj stado, by liczyć')}
+      ${stat('Sprzedane', t.sold + ' szt.')}${stat('Przychody', zl(t.revenue))}${stat('Rozdane', t.given + ' szt.')}${stat('Straty', t.lost + ' szt.')}</div></section>
+    <section class="card"><h2>🥚 Zbiory i nieśność</h2><div class="charts">${lineChart('an:c', a.daily, 'collected', ' szt.', 't', 'Zebrane jaja dziennie (szt.)')}
+      ${a.birds ? lineChart('an:l', a.daily, 'laying', ' %', 'h', 'Nieśność dzienna (% kur, dni ze zbiorem)') : '<figure><figcaption>Nieśność</figcaption><p class="mu">Dodaj stado (Więcej → Stado), aby liczyć nieśność.</p></figure>'}</div></section>
+    <section class="card"><h2>💰 Pieniądze</h2><div class="charts">${monthBars(a.monthly)}</div>
+      <div class="tw"><table><thead><tr><th>Miesiąc</th><th>Przychody</th><th>Wydatki</th><th>Wynik</th></tr></thead><tbody>${a.monthly.map(m =>
+        `<tr><td>${new Date(m.month + '-15').toLocaleDateString('pl-PL', {month: 'long', year: 'numeric'})}</td><td>${zl(m.revenue)}</td><td>${zl(m.expenses)}</td><td class="${m.profit < 0 ? 'no' : ''}">${zl(m.profit)}</td></tr>`).join('')}</tbody></table></div></section>
+    <div class="grid two"><section class="card"><h2>Formy płatności</h2>${meth.length ? hbars(meth, r => r.v, zl) : '<p class="mu">Brak wpłat w tym okresie.</p>'}</section>
+    <section class="card"><h2>Najwięksi klienci</h2>${a.top_clients.length ? hbars(a.top_clients.map(c => ({label: esc(c.name), v: c.eggs, total: c.total})), r => r.v, v => v + ' szt.') : '<p class="mu">Brak sprzedaży klientom z kartoteki.</p>'}</section></div>
+    ${a.people.length ? `<section class="card"><h2>👥 Kto co robił</h2><div class="tw"><table><thead><tr><th>Osoba</th><th>Zebrał(a)</th><th>Posortował(a)</th><th>Sprzedaży</th><th>Sprzedane jaja</th></tr></thead>
+      <tbody>${a.people.map(p => `<tr><td>${esc(p.name)}</td><td>${p.collected} szt.</td><td>${p.sorted} szt.</td><td>${p.sales}</td><td>${p.sold} szt.</td></tr>`).join('')}</tbody></table></div></section>` : ''}
+    <section class="card"><details><summary>Tabela dzienna</summary><div class="tw"><table><thead><tr><th>Dzień</th><th>Zebrane</th><th>Nieśność</th><th>Sprzedane</th><th>Przychód</th><th>Rozdane</th><th>Straty</th></tr></thead>
+      <tbody>${a.daily.slice().reverse().map(d => `<tr><td>${dmy(d.date)}</td><td>${d.collected}</td><td>${d.laying != null ? nf(d.laying, 0) + ' %' : '–'}</td><td>${d.sold}</td><td>${zl(d.revenue)}</td><td>${d.given}</td><td>${d.lost}</td></tr>`).join('')}</tbody></table></div></details></section>`;
+}
+
 // ---------- Więcej, Oferta, Stado, Ustawienia ----------
 function vMore() {
   return `<h1>Więcej</h1><div class="mtiles">${MORE.map(([k, i, t, s]) => `<button class="mtile" data-act="go" data-v="${k}"><span class="i" aria-hidden="true">${i}</span><b>${t}</b><small>${s}</small></button>`).join('')}</div>`;
@@ -516,23 +631,37 @@ async function vOffer() {
     <div class="actions"><button type="button" data-act="geo">📍 Użyj mojej lokalizacji</button></div></section>
     <div class="actions"><button class="pri">Zapisz ofertę</button></div></form>`;
 }
+let BUILDINGS = [];
 function flockForm(x) {
   const p = x ? 'fl' + x.id : 'flnew', v = k => `value="${esc(x ? x[k] : '')}"`;
   return `<form data-f="flock" data-id="${x ? x.id : ''}"><div class="row"><div><label for="${p}n">Nazwa stada</label><input id="${p}n" name="name" ${v('name')} required maxlength="60" placeholder="np. Stado główne"></div>
     <div><label for="${p}b">Liczba kur</label><input id="${p}b" name="birds" type="number" min="0" max="100000" value="${x ? x.birds : ''}" required inputmode="numeric"></div></div>
     <div class="row"><div><label for="${p}r">Rasa</label><input id="${p}r" name="breed" ${v('breed')} maxlength="60" placeholder="np. Zielononóżka"></div>
     <div><label for="${p}s">Od kiedy</label><input id="${p}s" name="since" type="date" ${v('since')}></div></div>
+    ${BUILDINGS.length ? `<label for="${p}k">Budynek</label><select id="${p}k" name="building_id"><option value="">— bez budynku —</option>${BUILDINGS.map(b =>
+      `<option value="${b.id}"${x && x.building_id === b.id ? ' selected' : ''}>${esc(b.name)}</option>`).join('')}</select>` : ''}
     <label for="${p}o">Notatki</label><textarea id="${p}o" name="notes" maxlength="1000" rows="2">${esc(x ? x.notes : '')}</textarea>
     <div class="actions"><button class="pri">${x ? 'Zapisz zmiany' : 'Dodaj stado'}</button>${x ? `<button type="button" class="ghost danger" data-act="delflock" data-id="${x.id}">Usuń stado</button>` : ''}</div></form>`;
 }
 async function vFlock() {
-  const [fl, eg] = await Promise.all([load('/api/my/flocks'), load('/api/my/eggs?days=7')]);
-  const birds = fl.reduce((s, x) => s + x.birds, 0), perDay = eg.collected / 7;
+  const [fl, eg, bs] = await Promise.all([load('/api/my/flocks'), load('/api/my/eggs?days=7'), load('/api/my/buildings')]);
+  BUILDINGS = bs;
+  const birds = fl.reduce((s, x) => s + x.birds, 0), perDay = eg.collected / 7, bname = Object.fromEntries(bs.map(b => [b.id, b.name]));
   const sum = `<section class="card"><div class="stats">${stat('Kury razem', birds)}${stat('Jaja dziennie', nf(perDay, 0), 'średnio z 7 dni')}
-    ${stat('Nieśność', birds ? nf(perDay / birds * 100, 0) + ' %' : '–', 'szacunkowo, ze zbiorów')}</div>
-    <p class="mu">Nieśność liczymy z zapisanych zbiorów (Jaja → Zbiór jaj), więc zapisuj je codziennie.</p></section>`;
-  return `<h1>Stado</h1>${fl.length ? sum : ''}${fl.map(x => `<section class="card" data-flock="${x.id}"><div class="dev-h"><div><h2>🐔 ${esc(x.name)}</h2>
-    <p class="mu">${x.birds} kur${x.breed ? ' · ' + esc(x.breed) : ''}${x.since ? ' · od ' + new Date(x.since).toLocaleDateString('pl-PL') : ''}</p></div></div>
+    ${stat('Nieśność', birds ? nf(perDay / birds * 100, 0) + ' %' : '–', 'szacunkowo, ze zbiorów')}${bs.length ? stat('Budynki', bs.length) : ''}</div>
+    <p class="mu">Nieśność liczymy z zapisanych zbiorów (Jaja → Zbiór), więc zapisuj je codziennie.</p></section>`;
+  const bcard = b => `<li data-building="${b.id}"><span class="ti" aria-hidden="true">🏠</span><div class="tb"><b>${esc(b.name)}</b>
+    <span class="mu">${b.flocks.length ? b.flocks.map(x => `${esc(x.name)} (${x.birds})`).join(', ') + ` · razem ${b.birds} kur` : 'brak stad: przypisz je w danych stada'}${b.notes ? ' · ' + esc(b.notes) : ''}</span></div>
+    <details><summary>Zmień</summary><form data-f="building" data-id="${b.id}"><div class="row"><div><label for="bn${b.id}">Nazwa</label><input id="bn${b.id}" name="name" value="${esc(b.name)}" required maxlength="60"></div>
+    <div><label for="bo${b.id}">Notatki</label><input id="bo${b.id}" name="notes" value="${esc(b.notes)}" maxlength="300"></div></div>
+    <div class="actions"><button class="pri sm">Zapisz</button><button type="button" class="sm ghost danger" data-act="bdel" data-id="${b.id}">Usuń budynek</button></div></form></details></li>`;
+  return `<h1>Stado i budynki</h1>${fl.length ? sum : ''}
+    <section class="card"><h2>🏠 Budynki</h2><p class="mu">Kurniki i wybiegi. W jednym budynku może być kilka stad; zbiór jaj możesz zapisywać osobno dla budynku.</p>
+    <ul class="list">${bs.map(bcard).join('') || '<li class="mu">Nie dodano budynków. Przy jednym kurniku nie są potrzebne.</li>'}</ul>
+    <details><summary>➕ Dodaj budynek</summary><form data-f="building"><div class="row"><div><label for="bn-new">Nazwa</label><input id="bn-new" name="name" required maxlength="60" placeholder="np. Kurnik duży"></div>
+    <div><label for="bo-new">Notatki</label><input id="bo-new" name="notes" maxlength="300"></div></div><div class="actions"><button class="pri">Dodaj budynek</button></div></form></details></section>
+    ${fl.map(x => `<section class="card" data-flock="${x.id}"><div class="dev-h"><div><h2>🐔 ${esc(x.name)}</h2>
+    <p class="mu">${x.birds} kur${x.breed ? ' · ' + esc(x.breed) : ''}${x.since ? ' · od ' + new Date(x.since).toLocaleDateString('pl-PL') : ''}${bname[x.building_id] ? ' · 🏠 ' + esc(bname[x.building_id]) : ''}</p></div></div>
     ${x.notes ? `<p>${esc(x.notes)}</p>` : ''}<details><summary>Zmień dane stada</summary>${flockForm(x)}</details></section>`).join('')}
     <section class="card"><h2>${fl.length ? 'Dodaj kolejne stado' : 'Dodaj pierwsze stado'}</h2>${fl.length ? '' : '<p class="mu">Zapisz, ile masz kur. Portal policzy nieśność ze zbiorów jaj.</p>'}${flockForm(null)}</section>`;
 }
@@ -542,9 +671,9 @@ const FCAT = {grain: 'Zboże', protein: 'Białkowe', mineral: 'Mineralne', premi
 const SEASONS = {all: 'Cały rok', summer: 'Lato', winter: 'Zima', spring: 'Wiosna', autumn: 'Jesień'};
 let FEED = {};
 const kg = v => nf(v, 2) + ' kg';
-function recipeRow(i) {
-  return `<div class="row" data-ritem><div><label>Składnik</label><select name="item">${FEED.items.map(x => `<option value="${x.id}"${x.id === i ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
-    <div><label>Udział (%)</label><input name="pct" type="number" step="0.1" min="0.1" max="100" required inputmode="decimal"></div>
+function recipeRow(i, pct) {
+  return `<div class="row" data-ritem><div><label>Składnik</label><select name="item" aria-label="Składnik">${FEED.items.map(x => `<option value="${x.id}"${x.id === i ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+    <div><label>Udział (%)</label><input name="pct" type="number" step="0.1" min="0.1" max="100" required inputmode="decimal" aria-label="Udział (%)"${pct != null ? ` value="${pct}"` : ''}></div>
     <div><button type="button" class="sm ghost danger" data-act="ritemdel" aria-label="Usuń składnik">Usuń</button></div></div>`;
 }
 async function vFeed() {
@@ -552,7 +681,7 @@ async function vFeed() {
   const nut = n => [n.protein != null && `białko ${nf(n.protein, 1)}%`, n.energy != null && `energia ${nf(n.energy, 0)} kcal/kg`,
     n.calcium != null && `wapń ${nf(n.calcium, 1)} g/kg`, n.price != null && `${zl(n.price)}/kg`].filter(Boolean).join(' · ');
   const active = f.recipes.find(r => r.active);
-  setTimeout(() => { const m = $('form[data-f=mix]'); if (m) mixNeed(m); const r = $('form[data-f=recipe]'); if (r) recipeSum(r) });
+  setTimeout(() => { const m = $('form[data-f=mix]'); if (m) mixNeed(m); $$('form[data-f=recipe]').forEach(recipeSum) });
   return `<h1>Pasza i mieszalnia</h1><section class="card"><div class="stats">${stat('Składniki w magazynie', f.items.length)}${stat('Wartość zapasu', zl(f.value))}
     ${stat('Poniżej minimum', f.low, f.low ? 'trzeba dokupić' : 'zapasy w porządku')}</div></section>
     <section class="card"><h2>⚖️ Mieszalnia</h2>${f.recipes.length ? `<form data-f="mix"><div class="row">
@@ -581,15 +710,21 @@ async function vFeed() {
     <section class="card"><h2>📜 Receptury</h2><ul class="list">${f.recipes.map(r => `<li><div class="tb"><b>${esc(r.name)}${r.active ? ' <span class="pill">w użyciu</span>' : ''}</b>
       <span class="mu">${SEASONS[r.season]} · ${r.items.map(x => `${esc(x.name)} ${nf(x.percent, 1)}%`).join(', ')}</span>
       <span class="mu">${nut(r.nutrition)}</span>${Math.abs(r.total_percent - 100) > 0.5 ? `<span class="no">⚠️ Udziały dają ${nf(r.total_percent, 1)}%, popraw recepturę</span>` : ''}</div>
-      <div class="seg">${r.active ? '' : `<button class="sm" data-act="recipeuse" data-id="${r.id}">Używaj</button>`}<button class="sm ghost danger" data-act="recipedel" data-id="${r.id}">Usuń</button></div></li>`).join('')
+      <div class="seg">${r.active ? '' : `<button class="sm" data-act="recipeuse" data-id="${r.id}">Używaj</button>`}<button class="sm ghost danger" data-act="recipedel" data-id="${r.id}">Usuń</button></div>
+      ${f.items.length ? `<details class="wide"><summary>✏️ Edytuj recepturę</summary>${recipeForm(r)}</details>` : ''}</li>`).join('')
       || '<li class="mu">Brak receptur.</li>'}</ul>
-      ${f.items.length ? `<details><summary>➕ Nowa receptura</summary><form data-f="recipe"><div class="row"><div><label for="re-n">Nazwa</label><input id="re-n" name="name" required maxlength="80" placeholder="np. nioski lato"></div>
-        <div><label for="re-s">Sezon</label><select id="re-s" name="season">${Object.entries(SEASONS).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div></div>
-        <div data-ritems>${recipeRow(f.items[0].id)}</div><div class="actions"><button type="button" class="sm" data-act="ritemadd">+ Składnik</button></div>
-        <p class="mu" data-rsum aria-live="polite"></p><div class="actions"><button class="pri">Zapisz recepturę</button></div></form></details>` : ''}</section>
+      ${f.items.length ? `<details><summary>➕ Nowa receptura</summary>${recipeForm(null)}</details>` : ''}</section>
     <section class="card"><h2>🧾 Ruchy w magazynie</h2><ul class="list log">${f.moves.slice(0, 20).map(m => `<li><time datetime="${esc(m.at)}">${day(m.at)}</time>
-      <div class="tb"><b>${esc(m.name)}: ${m.qty > 0 ? '+' : ''}${nf(m.qty, 2)}</b><span class="mu">${{purchase: 'przyjęcie', mix: 'mieszanie', adjust: 'spis'}[m.kind] || m.kind}${m.note ? ' · ' + esc(m.note) : ''}</span></div></li>`).join('')
+      <div class="tb"><b>${esc(m.name)}: ${m.qty > 0 ? '+' : ''}${nf(m.qty, 2)}</b><span class="mu">${{purchase: 'przyjęcie', mix: 'mieszanie', adjust: 'spis'}[m.kind] || m.kind}${m.note ? ' · ' + esc(m.note) : ''}${m.by_name ? ' · 👤 ' + esc(m.by_name) : ''}</span></div></li>`).join('')
       || '<li class="mu">Brak ruchów.</li>'}</ul></section>`;
+}
+function recipeForm(r) {
+  const p = r ? 're' + r.id : 're';
+  return `<form data-f="recipe" data-id="${r ? r.id : ''}"><div class="row"><div><label for="${p}-n">Nazwa</label><input id="${p}-n" name="name" required maxlength="80" placeholder="np. nioski lato" value="${r ? esc(r.name) : ''}"></div>
+    <div><label for="${p}-s">Sezon</label><select id="${p}-s" name="season">${Object.entries(SEASONS).map(([k, t]) => `<option value="${k}"${r && r.season === k ? ' selected' : ''}>${t}</option>`).join('')}</select></div></div>
+    <div data-ritems>${r && r.items.length ? r.items.map(x => recipeRow(x.item_id, x.percent)).join('') : recipeRow(FEED.items[0].id)}</div>
+    <div class="actions"><button type="button" class="sm" data-act="ritemadd">+ Składnik</button></div>
+    <p class="mu" data-rsum aria-live="polite"></p><div class="actions"><button class="pri">${r ? 'Zapisz zmiany' : 'Zapisz recepturę'}</button></div></form>`;
 }
 function mixNeed(f) {
   const r = FEED.recipes.find(x => x.id === +f.elements.recipe_id.value), k = +f.elements.kg.value || 0;
@@ -704,8 +839,11 @@ async function vKb(arg) {
     <div class="seg" role="group" aria-label="Kategorie" style="margin:.8rem 0">${['', ...cats].map(c => `<button data-act="kbcat" data-v="${esc(c)}" aria-pressed="${c === kbCat}">${c ? esc(c) : 'Wszystkie'}</button>`).join('')}</div>
     <div id="kblist"></div>`, after: kbSearch};
 }
+const memberLi = m => `<li data-member="${m.id}"><span class="ti" aria-hidden="true">👤</span><div class="tb"><b>${esc(m.name)}${m.me ? ' (Ty)' : ''}</b>
+  <span class="mu">${esc(m.email)}${m.owner ? ' · właściciel' : ''}</span></div>
+  ${me.owner && !m.me ? `<button class="sm ghost danger" data-act="memberdel" data-id="${m.id}">Usuń dostęp</button>` : ''}</li>`;
 async function vSettings() {
-  const t = theme(), st = await load('/api/my/settings');
+  const t = theme(), [st, team] = await Promise.all([load('/api/my/settings'), load('/api/my/team')]), mine = team.find(m => m.me) || {name: ''};
   return `<h1>Ustawienia</h1><section class="card"><h2>⏰ Przypomnienie o zbiorze</h2>
     <p class="mu">Jeśli do tej godziny nie wpiszesz zbioru, portal przypomni${st.mail_configured ? ` e-mailem na ${esc(st.email)} i` : ''} na ekranie Start.</p>
     <form data-f="settings"><label class="chk"><input type="checkbox" name="remind_on" ${st.remind_on ? 'checked' : ''}> Przypominaj o wpisaniu zbioru</label>
@@ -715,7 +853,23 @@ async function vSettings() {
     ${standalone() ? '' : '<div class="actions"><button class="pri" data-act="install">Dodaj jako aplikację</button></div><p class="mu" data-installhelp hidden></p>'}</section>
     <section class="card"><h2>Wygląd</h2><p class="mu">Automatyczny dopasowuje się do ustawień telefonu.</p><div class="seg" role="group" aria-label="Motyw">
     ${Object.entries(THEMES).map(([k, n]) => `<button data-act="settheme" data-v="${k}" aria-pressed="${k === t}">${n[0].toUpperCase() + n.slice(1)}</button>`).join('')}</div></section>
-    <section class="card"><h2>Konto</h2><p>Zalogowano jako <b>${esc(me.email)}</b></p><div class="actions"><button data-act="logout">Wyloguj</button></div></section>`;
+    <section class="card"><h2>👥 Zespół farmy</h2><p class="mu">Każda osoba ma własny login. W dzienniku jaj, sprzedaży i paszy widać, kto zapisał wpis.</p>
+    <ul class="list" data-team>${team.map(memberLi).join('')}</ul>
+    ${me.owner ? `<details><summary>➕ Dodaj osobę</summary><form data-f="member"><div class="row"><div><label for="tm-n">Imię</label><input id="tm-n" name="name" required maxlength="60" placeholder="np. Ola"></div>
+      <div><label for="tm-e">E-mail (login)</label><input id="tm-e" name="email" type="email" required autocomplete="off"></div>
+      <div><label for="tm-p">Hasło startowe (min. 8 znaków)</label><input id="tm-p" name="password" type="password" minlength="8" required autocomplete="new-password"></div></div>
+      <p class="mu">Przekaż tej osobie login i hasło; hasło zmieni sobie w Ustawieniach.</p><div class="actions"><button class="pri">Dodaj osobę</button></div></form></details>`
+      : '<p class="mu">Osoby dodaje właściciel farmy.</p>'}</section>
+    <section class="card"><h2>Konto</h2><p>Zalogowano jako <b>${esc(me.email)}</b></p>
+    <form data-f="myname"><div class="row"><div><label for="my-n">Twoje imię (widoczne przy wpisach)</label><input id="my-n" name="name" value="${esc(mine.name)}" required maxlength="60"></div>
+      <div><button>Zapisz imię</button></div></div></form>
+    <details><summary>🔑 Zmień hasło</summary><form data-f="password"><div class="row"><div><label for="pw-o">Obecne hasło</label><input id="pw-o" name="old" type="password" required autocomplete="current-password"></div>
+      <div><label for="pw-n">Nowe hasło (min. 8 znaków)</label><input id="pw-n" name="new" type="password" minlength="8" required autocomplete="new-password"></div></div>
+      <div class="actions"><button class="pri">Zmień hasło</button></div></form></details>
+    <div class="actions"><button data-act="logout">Wyloguj</button></div></section>
+    <section class="card"><h2>💾 Kopia danych</h2><p class="mu">Wszystkie dane farmy (klienci, sprzedaż, wpłaty, jaja, wydatki, wyposażenie, pasza) jako pliki CSV w jednym ZIP.
+      Otworzysz je w Excelu. Zapisz kopię na komputerze lub pendrive, np. raz w miesiącu.</p>
+      <div class="actions"><a class="btn pri" href="/api/my/export.zip" download>⬇️ Pobierz kopię danych (ZIP)</a></div></section>`;
 }
 
 // ---------- Sterowniki (zamawianie i dostawa) ----------
@@ -929,7 +1083,7 @@ function hover(e) {
   const [cx, cy] = c.xy[i], cr = $('[data-cross]', box), dot = $('[data-hdot]', box), tip = $('.tip', box);
   cr.setAttribute('x1', cx); cr.setAttribute('x2', cx); cr.setAttribute('visibility', 'visible');
   dot.setAttribute('cx', cx); dot.setAttribute('cy', cy); dot.setAttribute('visibility', 'visible');
-  tip.replaceChildren(Object.assign(document.createElement('b'), {textContent: nf(c.v[i][c.key]) + c.unit}), document.createTextNode(' · ' + hm(c.v[i].at)));
+  tip.replaceChildren(Object.assign(document.createElement('b'), {textContent: nf(c.v[i][c.key]) + c.unit}), document.createTextNode(' · ' + (c.lab ? c.lab(c.v[i]) : hm(c.v[i].at))));
   tip.style.left = Math.min(85, Math.max(15, cx / c.W * 100)) + '%'; tip.hidden = false;
 }
 function unhover(e) {
@@ -1033,7 +1187,14 @@ async function vAdmin(tab) {
     const c = await load('/api/admin/config');
     h += `<section class="card"><h2>Tunel WireGuard</h2><form data-f="cfg">${fld('Adres serwera', 'wg_endpoint', 'text', `value="${esc(c.wg_endpoint)}"`)}${fld('Port', 'wg_port', 'text', `value="${esc(c.wg_port)}"`)}
       ${fld('Podsieć (3 oktety)', 'net', 'text', `value="${esc(c.net)}"`)}<div class="actions"><button class="pri">Zapisz</button></div></form></section>`;
-  } else h += `<section class="card"><h2>Silnik harmonogramów i termostatu</h2><p class="mu">Uruchamia jeden obieg: zaplanowane wyłączenia, harmonogramy, drzwi i termostat. Wysyła tylko różnice.</p>
+  } else h += `<section class="card"><h2>💾 Kopia zapasowa bazy</h2><p class="mu">Cała baza portalu (wszystkie farmy, konta, sterowniki) w jednym pliku .db.
+    Kontener „kopie” robi ją też codziennie na serwerze; tutaj pobierzesz ją na własny komputer.</p>
+    <div class="actions"><a class="btn pri" href="/api/admin/backup" download>⬇️ Pobierz kopię bazy</a></div>
+    <details><summary>Przywróć bazę z kopii</summary><div class="alert bad"><b>Uwaga: zastępuje wszystkie dane</b>Obecna baza zostanie najpierw zapisana na serwerze (folder uploads), potem wszyscy będą musieli zalogować się ponownie.</div>
+    <form data-f="restore"><label for="rs-f">Plik kopii (.db)</label><input id="rs-f" name="file" type="file" accept=".db,.sqlite,.sqlite3" required>
+    <label for="rs-c">Wpisz PRZYWRÓĆ, aby potwierdzić</label><input id="rs-c" name="confirm" required autocomplete="off">
+    <div class="actions"><button class="pri">Przywróć bazę</button></div></form></details></section>
+    <section class="card"><h2>Silnik harmonogramów i termostatu</h2><p class="mu">Uruchamia jeden obieg: zaplanowane wyłączenia, harmonogramy, drzwi i termostat. Wysyła tylko różnice.</p>
     <button class="pri" data-act="tick">Uruchom silnik teraz</button><pre id="tickout" hidden></pre></section>`;
   return {html: h, after: () => { $$('form[data-f=fwset]').forEach(fwPins); $$('[data-fw]').forEach(x => fwPoll(x.dataset.fw, true)) }};
 }
@@ -1064,6 +1225,30 @@ const ACT = {
   schcancel: b => schedFill(b.closest('form'), null),
   ruleoff: b => saveRule(b.closest('form'), +b.closest('form').elements.threshold.value, false),
   logmore(b) { reloadLog(+b.dataset.id, 100); b.hidden = true },
+  eggedit(b) { const li = b.closest('li'); li.classList.add('editing'); li.innerHTML = eggEditForm(EGGS[b.dataset.id]); li.querySelector('input').focus() },
+  async eggdel(b) {
+    if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = 'Na pewno usunąć?'; return }
+    const r = await api('DELETE', `/api/my/eggs/${b.dataset.id}`);
+    await eggsReload(r.data && r.data.stock && 'Wpis usunięty, stan jaj cofnięty', r);
+  },
+  saleedit(b) {
+    const s = SALES[b.dataset.id], li = b.closest('li'); li.classList.add('editing');
+    li.innerHTML = `<form data-f="saleedit" data-id="${s.id}"><b>${s.client_id ? esc(s.client_name) : 'Bez kartoteki'} · ${s.eggs} szt. · ${zl(s.total)}</b>
+      <div class="row"><div>${dateIn('se-d' + s.id, s.at.slice(0, 10))}</div><div><label for="se-n${s.id}">Uwagi</label><input id="se-n${s.id}" name="notes" value="${esc(s.notes)}" maxlength="200"></div></div>
+      <p class="mu">Ilość i kwotę zmienisz, usuwając sprzedaż i wpisując ją ponownie.</p>
+      <div class="actions"><button class="pri sm">Zapisz poprawkę</button><button type="button" class="sm" data-act="retry">Anuluj</button></div></form>`;
+  },
+  async calmonth(b) { const d = new Date(calMonth + '-15T12:00:00'); d.setMonth(d.getMonth() + +b.dataset.v); calMonth = ymd(d).slice(0, 7); await calReload() },
+  calday(b) { calDay = b.dataset.v; $('[data-calendar]').innerHTML = '<h2>📅 Kalendarz</h2>' + calendar() },
+  async andays(b) { anDays = +b.dataset.v; await refresh() },
+  async memberdel(b) {
+    if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = 'Na pewno?'; return }
+    if (done(await api('DELETE', `/api/my/team/${b.dataset.id}`), 'Dostęp usunięty')) await refresh();
+  },
+  async bdel(b) {
+    if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = 'Na pewno? Stada zostaną'; return }
+    if (done(await api('DELETE', `/api/my/buildings/${b.dataset.id}`), 'Budynek usunięty')) await refresh();
+  },
   reserveneed(b) { const f = b.closest('form'); f.elements.reserved.value = b.dataset.v; allocSum(f) },
   async secrets(b) {
     const r = await api('GET', `/api/admin/devices/${b.dataset.id}/secrets`), pre = $(`[data-yaml="s${b.dataset.id}"]`);
@@ -1142,16 +1327,16 @@ const FORMS = {
   },
   login: auth, register: auth,
   async collect(f, v) {
-    const n = num(v.eggs), r = await api('POST', '/api/my/eggs', {kind: 'collect', eggs: n, note: v.note});
+    const n = num(v.eggs), r = await api('POST', '/api/my/eggs', {kind: 'collect', eggs: n, note: v.note, date: dateOf(v), building_id: num(v.building_id) || undefined});
     await eggsReload(r.data && r.data.stock && `Zapisano zbiór: ${n} szt. Do sortowania: ${r.data.stock.unsorted} szt.`, r);
   },
   async sort(f, v) {
-    const b = {kind: 'sort', good: num(v.good) || 0, dirty: num(v.dirty) || 0, damaged: num(v.damaged) || 0}, r = await api('POST', '/api/my/eggs', b);
+    const b = {kind: 'sort', good: num(v.good) || 0, dirty: num(v.dirty) || 0, damaged: num(v.damaged) || 0, date: dateOf(v)}, r = await api('POST', '/api/my/eggs', b);
     await eggsReload(r.data && r.data.stock && `Posortowano: ${b.good} dobrych do magazynu${b.dirty ? `, ${b.dirty} brudnych` : ''}${b.damaged ? `, ${b.damaged} uszkodzonych` : ''}. W magazynie: ${r.data.stock.eggs} szt.`, r);
   },
   async gift(f, v) {
-    const r = await api('POST', '/api/my/eggs', {kind: 'gift', eggs: num(v.eggs), who: v.who, note: v.note});
-    await eggsReload(r.data && r.data.stock && `Zapisano: ${v.eggs} szt. dla: ${v.who}. Wolne: ${r.data.stock.free} szt.`, r);
+    const r = await api('POST', '/api/my/eggs', {kind: 'gift', eggs: num(v.eggs), who: v.who, note: v.note, pool: v.pool, date: dateOf(v)});
+    await eggsReload(r.data && r.data.stock && `Zapisano: ${v.eggs} szt.${v.pool === 'dirty' ? ' brudnych' : ''} dla: ${v.who}. Wolne: ${r.data.stock.free} szt.`, r);
   },
   async settings(f, v) {
     const r = await api('PUT', '/api/my/settings', {remind_on: 'remind_on' in v, remind_hour: num(v.remind_hour)});
@@ -1161,7 +1346,33 @@ const FORMS = {
     const r = await api('POST', '/api/my/eggs/allocation', {offer_packs: num(v.offer_packs), reserved: num(v.reserved)});
     await eggsReload(r.data && r.data.stock && `W sklepie: ${r.data.stock.offer_packs} opak., rezerwa: ${r.data.stock.reserved} szt., wolne: ${r.data.stock.free} szt.`, r);
   },
-  async loss(f, v) { const r = await api('POST', '/api/my/eggs', {kind: 'loss', eggs: num(v.eggs), note: v.note}); await eggsReload(r.data && r.data.stock && `Zapisano stratę. W magazynie: ${r.data.stock.eggs} szt.`, r) },
+  async eggedit(f, v) {
+    const e = EGGS[f.dataset.id], b = {note: v.note};
+    if (v.date && v.date !== e.at.slice(0, 10)) b.date = v.date;
+    if ('eggs' in v && num(v.eggs) !== e.eggs) b.eggs = num(v.eggs);
+    if ('who' in v) b.who = v.who;
+    await eggsReload('Wpis poprawiony', await api('PATCH', `/api/my/eggs/${e.id}`, b));
+  },
+  async saleedit(f, v) {
+    const s = SALES[f.dataset.id], b = {notes: v.notes};
+    if (v.date && v.date !== s.at.slice(0, 10)) b.date = v.date;
+    if (done(await api('PATCH', `/api/my/sales/${s.id}`, b), 'Sprzedaż poprawiona')) await refresh();
+  },
+  async due(f, v) { if (done(await api('PATCH', `/api/my/orders/${f.dataset.id}`, {due_date: v.due_date}), v.due_date ? 'Termin zapisany' : 'Termin usunięty')) await refresh() },
+  async building(f, v) {
+    const id = f.dataset.id;
+    if (done(await api(id ? 'PATCH' : 'POST', `/api/my/buildings${id ? '/' + id : ''}`, v), id ? 'Zapisano budynek' : 'Dodano budynek')) await refresh();
+  },
+  async member(f, v) { if (done(await api('POST', '/api/my/team', v), `Dodano: ${v.name}. Przekaż login i hasło.`)) await refresh() },
+  async myname(f, v) { if (done(await api('PATCH', `/api/my/team/${me.id}`, {name: v.name}), 'Zapisano imię')) await refresh() },
+  async password(f, v) { if (done(await api('PUT', '/api/my/password', v), 'Hasło zmienione')) f.reset() },
+  async restore(f) {
+    const r = await fetch('/api/admin/restore', {method: 'POST', headers: {'X-Requested-With': 'zniesione'}, body: new FormData(f)});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) return toast(d.error || 'Nie udało się przywrócić bazy', true);
+    me = null; toast('Baza przywrócona. Zaloguj się ponownie.'); go('logowanie');
+  },
+  async loss(f, v) { const r = await api('POST', '/api/my/eggs', {kind: 'loss', eggs: num(v.eggs), note: v.note, pool: v.pool, date: dateOf(v)}); await eggsReload(r.data && r.data.stock && `Zapisano stratę. W magazynie: ${r.data.stock.eggs} szt.`, r) },
   async inventory(f, v) { const r = await api('POST', '/api/my/eggs', {kind: 'inventory', eggs: num(v.eggs), note: v.note}); await eggsReload(r.data && r.data.stock && `Stan magazynu: ${r.data.stock.eggs} szt.`, r) },
   async client(f, v) {
     const id = f.dataset.id, r = await api(id ? 'PATCH' : 'POST', `/api/my/clients${id ? '/' + id : ''}`, {...v, price10: num(v.price10)});
@@ -1184,6 +1395,7 @@ const FORMS = {
     const b = order ? {order_id: +order, method: v.method}
       : {...(sub ? {subscription_id: +sub} : {client_id: cid}), eggs: Math.round(+v.eggs), price10: Math.round(+v.price1 * 1000) / 100,
         discount: num(v.discount) || 0, method: v.method, source: v.source};
+    b.date = dateOf(v);
     if (['cash', 'transfer', 'blik'].includes(v.method) && cid) b.paid = num(v.paid);
     if (v.notes) b.notes = v.notes;
     const r = await api('POST', '/api/my/sales', b);
@@ -1205,8 +1417,8 @@ const FORMS = {
     if (done(await api('POST', '/api/my/feed/items', b), 'Dodano składnik')) await refresh();
   },
   async recipe(f, v) {
-    const items = $$('[data-ritem]', f).map(r => ({item_id: +r.querySelector('[name=item]').value, percent: num(r.querySelector('[name=pct]').value)}));
-    if (done(await api('POST', '/api/my/feed/recipes', {name: v.name, season: v.season, items}), 'Zapisano recepturę')) await refresh();
+    const items = $$('[data-ritem]', f).map(r => ({item_id: +r.querySelector('[name=item]').value, percent: num(r.querySelector('[name=pct]').value)})), id = f.dataset.id;
+    if (done(await api(id ? 'PATCH' : 'POST', `/api/my/feed/recipes${id ? '/' + id : ''}`, {name: v.name, season: v.season, items}), id ? 'Receptura zmieniona' : 'Zapisano recepturę')) await refresh();
   },
   async sub(f, v) {
     const r = await api('POST', '/api/my/subscriptions', {client_id: num(v.client_id), eggs: num(v.eggs), every_days: num(v.every_days), next_date: v.next_date, method: v.method, notes: v.notes});
@@ -1251,6 +1463,7 @@ const FORMS = {
   },
   async flock(f, v) {
     const id = f.dataset.id, b = {...v, birds: Math.round(+v.birds)};
+    if ('building_id' in v) b.building_id = num(v.building_id);
     if (done(await api(id ? 'PATCH' : 'POST', `/api/my/flocks${id ? '/' + id : ''}`, b), id ? 'Zapisano stado' : 'Dodano stado')) await refresh();
   },
   async kb(f, v) {
@@ -1313,6 +1526,11 @@ document.addEventListener('input', async e => {
   shopQ = e.target.value; const q = shopQ, r = await api('GET', '/api/farms?q=' + encodeURIComponent(q));
   if (r.ok && q === shopQ && $('#farms')) $('#farms').innerHTML = farmCards(r.data);
 });
+async function calReload() {
+  const r = await api('GET', '/api/my/calendar?month=' + calMonth);
+  if (!r.ok) return toast(errMsg(r), true);
+  CAL = r.data; const box = $('[data-calendar]'); if (box) box.innerHTML = '<h2>📅 Kalendarz</h2>' + calendar();
+}
 function payPreview(f) {
   const box = $('[data-after]', f), bal = +($('[data-balance]') || {}).dataset?.value;
   if (box && !isNaN(bal)) box.textContent = 'Po wpłacie: ' + balInfo(Math.round((bal - (+f.elements.amount.value || 0)) * 100) / 100).long;

@@ -94,7 +94,9 @@ def register(app, need, q, commit, body, err):
         for r in q("SELECT substr(at,1,10) d, SUM(eggs) e, SUM(total) t FROM sales WHERE farm_id=? AND at>=? GROUP BY d", fid, since):
             if r["d"] in daily:
                 daily[r["d"]].update(sold=r["e"], revenue=round(r["t"], 2))
-        series = [dict(date=d, **v, laying=round(v["collected"] * 100 / birds, 1) if birds else None) for d, v in daily.items()]
+        # nieśność tylko dla dni z wpisanym zbiorem (dzień bez wpisu to brak danych, nie zero jaj)
+        series = [dict(date=d, **v, laying=round(v["collected"] * 100 / birds, 1) if birds and v["collected"] else None) for d, v in daily.items()]
+        logged = sum(1 for s in series if s["collected"])
 
         months = months_back(date.today(), max(1, min(12, (n + 29) // 30)))
         monthly = {m: dict(month=m, revenue=0.0, expenses=0.0) for m in months}
@@ -130,7 +132,7 @@ def register(app, need, q, commit, body, err):
                        methods={k: round(v, 2) for k, v in methods.items() if abs(v) > 0.005}, top_clients=top,
                        people=[p for p in people.values() if p["collected"] or p["sorted"] or p["sales"]],
                        totals=dict(tot, revenue=round(sum(s["revenue"] for s in series), 2),
-                                   laying=round(tot["collected"] * 100 / (birds * n), 1) if birds else None))
+                                   days_logged=logged, laying=round(tot["collected"] * 100 / (birds * logged), 1) if birds and logged else None))
 
     @app.get("/api/my/export.zip")
     @need("farmer")

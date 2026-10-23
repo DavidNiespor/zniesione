@@ -183,3 +183,28 @@ pre[data-fwlog]{max-height:16rem;font-size:.75rem}
 esp-web-install-button{display:inline-block}
 @media(max-width:420px){.act{min-height:84px;padding:.7rem}.act .i{font-size:1.6rem}.mtile .i{font-size:1.7rem}}
 .row.tight{grid-template-columns:repeat(auto-fit,minmax(min(100%,92px),1fr))}
+
+/* układ formularzy: dwie kolumny kart, karty nie rozciągają się na wysokość sąsiada */
+.grid{align-items:start;margin-bottom:.9rem}
+.grid.two{grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))}
+.row.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.stats .num{display:flex;flex-direction:column}.stats .num span:last-child:not(:first-child){margin-top:auto}
+.log li.editing{display:block}.log li.editing form{padding:.2rem 0}
+details.wide{flex-basis:100%;border-top:0;margin-top:0}
+details.due{border:0;margin:.2rem 0 0;padding:0}details.due summary{min-height:36px;font-weight:500;font-size:.92rem}
+form.inl{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}form.inl input{width:auto;flex:1;min-width:9rem}
+/* kalendarz */
+.calnav{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.5rem}.calnav b{text-transform:capitalize}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
+.cw{text-align:center;font-size:.78rem;color:var(--mu);padding:.2rem 0}
+.cd{min-height:52px;padding:.2rem;border-radius:10px;flex-direction:column;justify-content:flex-start;gap:0;background:var(--sf2);font-size:.9rem}
+.cd.out{background:transparent;border:0}.cd small{font-size:.68rem;line-height:1.15;display:flex;flex-wrap:wrap;justify-content:center;gap:0 2px}
+.cd.now{border-color:var(--ac);border-width:2px}.cd[aria-pressed="true"]{background:var(--hd);color:var(--hdt)}
+@media(min-width:700px){.cd{min-height:66px}.cd small{font-size:.8rem}}
+/* analityka */
+.chart .bar.r{fill:var(--c-h)}.chart .bar.e{fill:var(--c-t)}
+.legend{display:flex;gap:1rem;flex-wrap:wrap;font-size:.85rem;color:var(--mu);margin:.2rem 0}.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:.35rem}
+.legend .sw-r{background:var(--c-h)}.legend .sw-e{background:var(--c-t)}
+.hb li{flex-wrap:nowrap}.hb .tb{min-width:0}.hb b{font-variant-numeric:tabular-nums;white-space:nowrap}
+.row{grid-template-columns:repeat(auto-fit,minmax(min(100%,128px),1fr))}
+.card>details:first-child{border-top:0;margin-top:0}

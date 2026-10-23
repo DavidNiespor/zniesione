@@ -49,6 +49,9 @@ Panel rolnika (telefon jako pierwszy, dolne menu Start, Jaja, Sterowanie, Zamów
   (np. mamie, z odbiorcą i podsumowaniem), straty, inwentaryzacja i **przypomnienie o 19:00** (e-mail i baner), gdy zbiór nie jest wpisany.
   Z magazynu dobrych jaj rolnik przydziela: ile **opakowań ogłasza w sklepie** i ile **sztuk rezerwuje dla stałych klientów**;
   portal pilnuje, by ogłoszone + zarezerwowane + potwierdzone zamówienia nie przekroczyły magazynu (reszta to „wolne”).
+  **Brudne jaja** to osobna pula: nie trafiają do sklepu, ale można je sprzedać na miejscu albo rozdać.
+  Każdy wpis (zbiór, sortowanie, rozdane, strata, sprzedaż) można zapisać **z wcześniejszą datą** (do roku wstecz) i **poprawić lub usunąć**;
+  stany jaj cofają się tak, jakby wpisu nie było.
 - **Kartoteka klienta** (jak w e-kurniku): zakupy, wpłaty, sposób płatności (gotówka, przelew, BLIK, następnym razem, z nadpłaty),
   dług i nadpłata, wpłata z „rozlicz do zera”, zwrot nadpłaty, korekta salda, własna cena klienta, historia z saldem po każdym wpisie.
   Saldo liczone z historii, więc usunięcie sprzedaży cofa też stan jaj i saldo.
@@ -57,8 +60,15 @@ Panel rolnika (telefon jako pierwszy, dolne menu Start, Jaja, Sterowanie, Zamów
   ze sklepu staje się cyklicznym po potwierdzeniu).
 - **Wydatki** (kategorie, wartość z ilości i ceny) i **Wyposażenie** (stan, przeglądy z przypomnieniem na Starcie);
   Raporty: wpływy według sposobu płatności, długi, nadpłaty, wydatki i zysk.
-- **Stado** (liczba kur, rasa, notatki, jaja dziennie i nieśność ze zbiorów), **Zamówienia**, **Oferta** (cena, opis, położenie),
-  **Sterowniki** (zamawianie, etapy dostawy), **Baza wiedzy**, **Ustawienia** (motyw auto/jasny/czarny, wylogowanie).
+- **Analityka** z wykresami (30 dni, 3 miesiące, rok): zbiory dziennie, nieśność, przychody i wydatki w miesiącach, formy płatności,
+  najwięksi klienci, kto co robił; pod wykresami tabele z liczbami.
+- **Stado i budynki**: kurniki z kilkoma stadami w każdym (liczba kur, rasa, notatki), zbiór jaj można przypisać do budynku;
+  jaja dziennie i nieśność ze zbiorów.
+- **Zamówienia** z **kalendarzem** miesiąca (zamówienia ze sklepu z terminem odbioru, dostawy stałych klientów, sprzedaż),
+  **Oferta** (cena, opis, położenie), **Sterowniki** (zamawianie, etapy dostawy), **Baza wiedzy**.
+- **Kilku zarządzających jedną farmą**: właściciel dodaje osoby z osobnymi loginami; przy każdym wpisie widać, kto zbierał, sortował i sprzedał.
+- **Ustawienia**: zespół, własne imię, zmiana hasła, **kopia danych farmy** (CSV w ZIP, otwiera się w Excelu), motyw, wylogowanie.
+  Administrator pobiera **kopię całej bazy** i może ją **przywrócić** (Administrator → Narzędzia).
 - **Pasza i mieszalnia**: magazyn zboża i dodatków (stan, minimum, cena, białko, energia, wapń), przyjęcie zakupu z wydatkiem,
   receptury (udziały 100%, wartości odżywcze i cena za kg), mieszanie odejmujące składniki z magazynu.
 - **Aplikacja na telefon**: portal instaluje się jak aplikacja (ikona, pełny ekran, skróty: Zbiór jaj, Sprzedaż, Sterowanie).
@@ -167,8 +177,8 @@ Scenariusze do przejścia ręcznie (najlepiej na telefonie lub w trybie telefonu
 9. Rolnik, Więcej, Sterowniki: T-Relay jest domyślny i oznaczony jako najtańszy; T-Relay z Tailscale zostaje odrzucony.
 
 ## Testy automatyczne
-    python -m pytest -q                                  # 99 testów API i logiki
-    cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 110 kroków przez interfejs (jsdom), każdy system
+    python -m pytest -q                                  # 110 testów API i logiki
+    cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 120 kroków przez interfejs (jsdom), każdy system
 `run.js` zakłada bazę w katalogu tymczasowym, uruchamia atrapę urządzenia (port 9123) i serwer Flaska (port 8765);
 porty i interpreter zmienisz zmiennymi `DEV_PORT`, `WEB_PORT`, `PYTHON`. `tests/e2e/run.sh` tylko wywołuje `run.js`.
 Test e2e nie zastępuje sprawdzenia w prawdziwej przeglądarce na telefonie.
