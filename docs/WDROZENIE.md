@@ -57,7 +57,8 @@ sudo docker compose up -d --build
 sudo docker compose exec zniesione flask --app zniesione create-admin
 ```
 
-Zapora: `sudo ufw allow OpenSSH && sudo ufw allow 51820/udp && sudo ufw enable`. Portów 80, 443 i 8000 nie otwieraj.
+Zapora: `sudo ufw allow OpenSSH && sudo ufw allow 51820/udp && sudo ufw enable`. Portów 80 i 443 nie otwieraj.
+Stack nie zajmuje portu 8000 na serwerze, więc nie koliduje z Portainerem ani innymi usługami.
 
 Aktualizacja: `cd /opt/zniesione && sudo git pull && sudo docker compose up -d --build`
 
@@ -99,6 +100,7 @@ Odtworzenie: `docker compose stop zniesione`, skopiuj wybrany plik jako `/data/z
 
 | Objaw | Przyczyna i rozwiązanie |
 |---|---|
+| „Bind for 0.0.0.0:… port is already allocated” | Port jest zajęty przez inną usługę. Stack wystawia tylko `WG_PORT` (domyślnie 51820/UDP): jeśli i ten jest zajęty, ustaw inny `WG_PORT` i ten sam port w Konfiguracji admina. |
 | Cloudflare: błąd 502 | W Public Hostname adres usługi musi być `portal:8000` (typ HTTP). |
 | Logowanie nie trzyma sesji | Portal otwarty przez `http://` lub po IP. Używaj `https://` i domeny. |
 | Sterownik „Brak połączenia” | Rekord `wg` z wyłączonym proxy, otwarty port UDP, poprawny adres i port w Konfiguracji, wgrany secrets.yaml. Podgląd tunelu: `docker compose exec wireguard wg show`. |

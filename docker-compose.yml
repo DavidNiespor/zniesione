@@ -15,8 +15,9 @@ services:
     command: ["tail", "-f", "/dev/null"]
     init: true
     restart: unless-stopped
+    # Portu 8000 nie wystawiamy na serwerze (bywa zajęty, np. przez Portainera): cloudflared łączy się z portalem
+    # wewnątrz sieci Dockera pod adresem portal:8000.
     ports:
-      - "127.0.0.1:8000:8000"            # portal tylko z samego serwera; z internetu przez tunel Cloudflare
       - "${WG_PORT:-51820}:51820/udp"     # WireGuard dla sterowników (nie przechodzi przez Cloudflare)
     networks:
       default:
