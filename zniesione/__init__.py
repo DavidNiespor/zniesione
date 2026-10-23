@@ -856,8 +856,11 @@ def create_app(test_config=None):
         q("INSERT INTO flocks(farm_id,name,birds,breed,since,notes) VALUES(1,?,?,?,?,?)", "Stado główne", 48,
           "Zielononóżka kuropatwiana", "2026-03-15", "Wybieg za stodołą, zamykane na noc.")
         for i, (n, dmg) in enumerate(((38, 1), (41, 0), (35, 2), (40, 1), (42, 0), (36, 1), (39, 0))):  # zbiory z tygodnia, w sztukach
-            q("INSERT INTO eggs(farm_id,kind,eggs,damaged,packs,at) VALUES(1,'collect',?,?,?,?)", n, dmg, (n - dmg) // 10,
-              (datetime.now() - timedelta(days=7 - i, hours=-2)).isoformat())
+            at = (datetime.now() - timedelta(days=7 - i, hours=-2)).isoformat()
+            q("INSERT INTO eggs(farm_id,kind,eggs,at) VALUES(1,'collect',?,?)", n, at)
+            q("INSERT INTO eggs(farm_id,kind,eggs,dirty,packs,at) VALUES(1,'sort',?,?,?,?)", n - dmg, dmg, (n - dmg) // 10, at)
+        q("UPDATE farms SET unsorted=24 WHERE id=1")  # dzisiejszy zbiór czeka na sortowanie
+        q("INSERT INTO eggs(farm_id,kind,eggs,at) VALUES(1,'collect',24,?)", (datetime.now() - timedelta(hours=1)).isoformat())
         q("UPDATE farms SET eggs=stock*10+60, reserved=30 WHERE id=1")  # magazyn: 12 opak. w sklepie, 30 szt. rezerwy, 30 wolnych
         for name, phone, price, history in (  # kartoteka: dług, nadpłata, stały klient z własną ceną
                 ("Pani Zofia (sąsiadka)", "601202303", None, [("sale", 28, "later", 6), ("payment", -10, "cash", 3)]),

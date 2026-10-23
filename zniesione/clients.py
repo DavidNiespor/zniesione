@@ -260,7 +260,7 @@ def register(app, need, q, commit, body, err, integer):
         elif source == "reserve":
             if not q("UPDATE farms SET reserved=reserved-?, eggs=eggs-? WHERE id=? AND reserved>=?", eggs, eggs, fid, eggs).rowcount:
                 return err(f"Zarezerwowanych jest tylko {q('SELECT reserved FROM farms WHERE id=?', fid).fetchone()['reserved']} szt.", 409)
-        elif not q(f"UPDATE farms SET eggs=eggs-? WHERE id=? AND eggs-stock*10-reserved-{farmbook.committed_sql()}>=?", eggs, fid, eggs).rowcount:
+        elif not q(f"UPDATE farms SET eggs=eggs-? WHERE id=? AND {farmbook.free_sql()}>=?", eggs, fid, eggs).rowcount:
             return err(f"Wolnych jaj jest tylko {farmbook.pools(q, fid)['free']} szt. (reszta ogłoszona w sklepie lub zarezerwowana)", 409)
         at = now()
         sid = q("INSERT INTO sales(farm_id,client_id,order_id,subscription_id,at,eggs,packs,price10,discount,total,method,paid,notes,source) "

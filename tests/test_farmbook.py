@@ -6,7 +6,7 @@ from zniesione import create_app
 
 
 def collect(c, n, dmg=0):
-    return c.post("/api/my/eggs", {"kind": "collect", "eggs": n, "damaged": dmg}).get_json()["stock"]
+    return c.post("/api/my/eggs", {"kind": "collect", "eggs": n, "damaged": dmg, "sorted": True}).get_json()["stock"]
 
 
 def pools(c):
@@ -153,3 +153,33 @@ def test_old_egg_log_is_migrated_to_pieces(tmp_path):
     assert con.execute("SELECT kind, eggs, packs FROM eggs").fetchone() == ("collect", 40, 4)
     assert con.execute("SELECT eggs FROM farms").fetchone() == (70,)                        # 7 opakowań w sklepie = 70 szt.
     con.execute("INSERT INTO eggs(farm_id,kind,eggs,at) VALUES(1,'loss',2,'2026-10-02')")   # stare ograniczenie usunięte
+
+
+def test_collect_goes_to_sorting_then_warehouse(app, farmer, farmer2):
+    c, _ = farmer
+    st = c.post("/api/my/eggs", {"kind": "collect", "eggs": 40}).get_json()["stock"]
+    assert (st["unsorted"], st["eggs"]) == (40, 0)                                       # najpierw sortowanie
+    assert c.get("/api/my/eggs").get_json()["collected_today"] == 40
+    for bad in ({"kind": "sort"}, {"kind": "sort", "good": -1}, {"kind": "sort", "good": "5"}):
+        assert c.post("/api/my/eggs", bad).status_code == 400, bad
+    r = c.post("/api/my/eggs", {"kind": "sort", "good": 38, "dirty": 2, "damaged": 1})
+    assert r.status_code == 409 and "tylko 40" in r.get_json()["error"]
+    st = c.post("/api/my/eggs", {"kind": "sort", "good": 36, "dirty": 3, "damaged": 1}).get_json()["stock"]
+    assert (st["unsorted"], st["eggs"], st["free"]) == (0, 36, 36)
+    e = c.get("/api/my/eggs").get_json()
+    assert (e["collected"], e["good"], e["dirty"], e["damaged"]) == (40, 36, 3, 1)
+    assert farmer2[0].post("/api/my/eggs", {"kind": "sort", "good": 1}).status_code == 409
+
+
+def test_gifts_are_tracked_by_recipient(app, farmer):
+    c, _ = farmer
+    collect(c, 50)
+    c.post("/api/my/eggs/allocation", {"offer_packs": 2, "reserved": 10})                  # wolne: 20
+    assert c.post("/api/my/eggs", {"kind": "gift", "eggs": 10}).status_code == 400         # komu?
+    assert c.post("/api/my/eggs", {"kind": "gift", "eggs": 21, "who": "Mama"}).status_code == 409
+    c.post("/api/my/eggs", {"kind": "gift", "eggs": 10, "who": "Mama"})
+    c.post("/api/my/eggs", {"kind": "gift", "eggs": 6, "who": "Sąsiad Jan", "note": "za pomoc przy płocie"})
+    c.post("/api/my/eggs", {"kind": "gift", "eggs": 4, "who": "Mama"})
+    e = c.get("/api/my/eggs").get_json()
+    assert e["given"] == 20 and e["given_to"] == {"Mama": 14, "Sąsiad Jan": 6} and e["stock"]["free"] == 0
+    assert e["recipients"][0] == "Mama"

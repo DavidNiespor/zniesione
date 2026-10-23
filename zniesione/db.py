@@ -58,6 +58,11 @@ COLUMNS = [
     ("farms", "reserved", "INTEGER NOT NULL DEFAULT 0"),  # z tego zarezerwowane dla stałych klientów (szt.)
     ("sales", "eggs", "INTEGER NOT NULL DEFAULT 0"), ("sales", "source", "TEXT NOT NULL DEFAULT 'offer'"),
     ("sales", "subscription_id", "INTEGER"),
+    ("farms", "unsorted", "INTEGER NOT NULL DEFAULT 0"),  # zebrane, czekają na sortowanie (szt.)
+    ("eggs", "dirty", "INTEGER NOT NULL DEFAULT 0"), ("eggs", "who", "TEXT NOT NULL DEFAULT ''"),
+    ("farms", "remind_on", "INTEGER NOT NULL DEFAULT 1"), ("farms", "remind_hour", "INTEGER NOT NULL DEFAULT 19"),
+    ("farms", "remind_sent", "TEXT NOT NULL DEFAULT ''"),
+    ("devices", "esp_api_key", "TEXT"), ("devices", "esp_ota_password", "TEXT"),
     ("channels", "off_at", "TEXT"), ("channels", "want", "INTEGER"),
     ("schedules", "mode", "TEXT NOT NULL DEFAULT 'time'"), ("schedules", "offset_min", "INTEGER NOT NULL DEFAULT 0"),
     ("schedules", "off_mode", "TEXT NOT NULL DEFAULT 'time'"), ("schedules", "off_offset_min", "INTEGER NOT NULL DEFAULT 0"),
