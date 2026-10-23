@@ -20,6 +20,7 @@ from . import db as dbm
 from . import clients
 from . import ekurnik
 from . import farmbook
+from . import feed
 from . import services as sv
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
@@ -642,6 +643,7 @@ def create_app(test_config=None):
         return jsonify(ok=True)
 
     farmbook.register(app, need, q, commit, body, err, integer)
+    feed.register(app, need, q, commit, body, err)
 
     # ---------- baza wiedzy ----------
     def kb_json(r, full=True):

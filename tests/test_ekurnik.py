@@ -40,6 +40,17 @@ INSERT INTO stado VALUES (1,1,'Nioski','nioski',25,'2026-03-01',NULL,'Zielononó
   (3,1,'Stare','nioski',5,NULL,NULL,NULL,NULL,0);
 INSERT INTO wydatki VALUES (1,1,'2026-09-03','Zboże/pasza','Pszenica',100,'kg',1.1,110,'GS',''),(2,1,'2026-09-04','Weterynarz','Wizyta',1,'import',0,80,'','');
 INSERT INTO wyposazenie VALUES (1,1,'Poidło','Poidło','2026-03-01',60,'sprawne','',''),(2,1,'Lampa','Oświetlenie',NULL,40,'do naprawy','2026-11-01','');
+CREATE TABLE stan_magazynu(id INTEGER PRIMARY KEY, gospodarstwo_id INTEGER, kategoria TEXT, nazwa TEXT, jednostka TEXT, stan REAL,
+  min_zapas REAL, cena_aktualna REAL);
+CREATE TABLE skladniki_baza(id INTEGER PRIMARY KEY, nazwa TEXT, kategoria TEXT, cena_pln_t REAL, bialko_pct REAL, energia_me REAL, wapn_g_kg REAL);
+CREATE TABLE receptura(id INTEGER PRIMARY KEY, gospodarstwo_id INTEGER, nazwa TEXT, sezon TEXT, aktywna INTEGER);
+CREATE TABLE receptura_skladnik(id INTEGER PRIMARY KEY, receptura_id INTEGER, magazyn_id INTEGER, procent REAL);
+CREATE TABLE mieszania(id INTEGER PRIMARY KEY, gospodarstwo_id INTEGER, data TEXT, receptura_id INTEGER, ilosc_kg REAL, uwagi TEXT);
+INSERT INTO stan_magazynu VALUES (1,1,'Zboże/pasza','Pszenica','kg',300,100,0),(2,1,'Zboże/pasza','Śruta sojowa','kg',40,20,2.4),(3,1,'Witaminy/suplementy','Witaminy','kg',2,0,0);
+INSERT INTO skladniki_baza VALUES (1,'pszenica','zboze',1100,11.5,2900,0.5),(2,'Śruta sojowa','bialkowe',2200,46,2400,3);
+INSERT INTO receptura VALUES (1,1,'Nioski','caly_rok',1);
+INSERT INTO receptura_skladnik VALUES (1,1,1,0.8),(2,1,2,0.2);
+INSERT INTO mieszania VALUES (1,1,'2026-09-10T08:00:00',1,50,'');
 INSERT INTO zamowienia VALUES (1,1,1,'2026-09-01','2026-10-30',30,1.1,'nowe','gotowka','',7,1),(2,1,2,'2026-09-01','2026-09-08',10,1.3,'dostarczone','gotowka','',7,1);
 """
 
@@ -78,6 +89,13 @@ def test_import_from_ekurnik(app, farmer, tmp_path):
     assert eq == {"Poidło": "ok", "Lampa": "repair"}
     s = c.get("/api/my/subscriptions").get_json()
     assert [(x["client_name"], x["eggs"], x["every_days"], x["next_date"], x["method"]) for x in s] == [("Pani Ola", 30, 7, "2026-10-30", "cash")]
+    feed = c.get("/api/my/feed").get_json()
+    it = {i["name"]: i for i in feed["items"]}
+    assert (it["Pszenica"]["stock"], it["Pszenica"]["price"], it["Pszenica"]["protein"], it["Pszenica"]["category"]) == (300, 1.1, 11.5, "grain")
+    assert it["Śruta sojowa"]["category"] == "protein" and it["Witaminy"]["category"] == "additive"
+    rec = feed["recipes"][0]
+    assert (rec["name"], rec["active"], rec["total_percent"], rec["season"]) == ("Nioski", True, 100, "all")
+    assert feed["mixes"][0]["kg"] == 50
     assert "już zaimportowane" in run(args=["import-ekurnik", path, "--email", "a@x.pl"]).output
 
 

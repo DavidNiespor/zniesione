@@ -151,6 +151,7 @@ def import_ekurnik(db, path, farm_id, gid):
                    (farm_id, (w["nazwa"] or "Wyposażenie")[:120], (w["kategoria"] or "")[:60], (iso(w["data_zakupu"]) or "")[:10],
                     float(w["cena"] or 0), STATE.get((w["stan"] or "").lower(), "ok"), (iso(w["nastepny_przeglad"]) or "")[:10], (w["uwagi"] or "")[:500]))
         n["wyposazenie"] += 1
+    n["pasza"], n["receptury"] = import_feed(src, db, farm_id, gid)
     for z in src.execute("SELECT * FROM zamowienia WHERE gospodarstwo_id=? AND cykl_dni>0 AND cykl_aktywne=1 AND status IN ('nowe','potwierdzone')", (gid,)):
         cid = cmap.get(z["klient_id"])
         if cid and iso(z["data_dostawy"]):
@@ -163,6 +164,42 @@ def import_ekurnik(db, path, farm_id, gid):
     src.close()
     n["magazyn_szt"] = stock
     return n
+
+
+FEED_CAT = {"zboze": "grain", "bialkowe": "protein", "mineralne": "mineral", "premiks": "premix", "naturalny_dodatek": "additive"}
+SEASON = {"caly_rok": "all", "lato": "summer", "zima": "winter", "wiosna": "spring", "jesien": "autumn"}
+
+
+def import_feed(src, db, farm_id, gid):
+    """Magazyn paszy (stan_magazynu) z wartościami odżywczymi z bazy składników, receptury i historia mieszania."""
+    if not has(src, "stan_magazynu"):
+        return 0, 0
+    base = {r["nazwa"].strip().lower(): r for r in src.execute("SELECT * FROM skladniki_baza")} if has(src, "skladniki_baza") else {}
+    imap = {}
+    for m in src.execute("SELECT * FROM stan_magazynu WHERE gospodarstwo_id=?", (gid,)):
+        b = base.get((m["nazwa"] or "").strip().lower())
+        cat = FEED_CAT.get(b["kategoria"], "grain") if b else ("additive" if "witamin" in (m["kategoria"] or "").lower() else "grain")
+        price = float(m["cena_aktualna"] or 0) or (round(float(b["cena_pln_t"] or 0) / 1000, 3) if b else 0)
+        val = lambda k: (float(b[k]) if b and b[k] else None)
+        imap[m["id"]] = db.execute(
+            "INSERT INTO feed_items(farm_id,name,category,unit,stock,min_stock,price,protein,energy,calcium) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (farm_id, (m["nazwa"] or "Składnik")[:80], cat, (m["jednostka"] or "kg")[:10], max(0, float(m["stan"] or 0)),
+             float(m["min_zapas"] or 0), price, val("bialko_pct"), val("energia_me"), val("wapn_g_kg"))).lastrowid
+    rmap = {}
+    for r in src.execute("SELECT * FROM receptura WHERE gospodarstwo_id=?", (gid,)):
+        parts = [p for p in src.execute("SELECT * FROM receptura_skladnik WHERE receptura_id=?", (r["id"],)) if p["magazyn_id"] in imap]
+        scale = 100 if sum(float(p["procent"] or 0) for p in parts) <= 1.5 else 1  # e-kurnik trzyma udziały jako ułamki
+        rmap[r["id"]] = rid = db.execute("INSERT INTO recipes(farm_id,name,season,active,notes) VALUES(?,?,?,?,?)",
+                                         (farm_id, (r["nazwa"] or "Receptura")[:80], SEASON.get(r["sezon"], "all"), int(r["aktywna"] or 0),
+                                          "Z e-kurnika")).lastrowid
+        for p in parts:
+            db.execute("INSERT INTO recipe_items(recipe_id,item_id,percent) VALUES(?,?,?)", (rid, imap[p["magazyn_id"]], round(float(p["procent"]) * scale, 2)))
+    if has(src, "mieszania"):
+        for x in src.execute("SELECT * FROM mieszania WHERE gospodarstwo_id=?", (gid,)):
+            if iso(x["data"]):
+                db.execute("INSERT INTO mixes(farm_id,at,recipe_id,kg,notes) VALUES(?,?,?,?,?)",
+                           (farm_id, iso(x["data"]), rmap.get(x["receptura_id"]), float(x["ilosc_kg"] or 0), ("e-kurnik " + (x["uwagi"] or "")).strip()))
+    return len(imap), len(rmap)
 
 
 def warehouse(src, gid):
