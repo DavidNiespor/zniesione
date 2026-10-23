@@ -1,0 +1,22 @@
+{
+  "name": "zniesione.pl – kurnik i sprzedaż jaj",
+  "short_name": "zniesione",
+  "description": "Panel rolnika: jaja, sprzedaż, klienci, sterowanie kurnikiem",
+  "lang": "pl",
+  "start_url": "/#/start",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#eef1ec",
+  "theme_color": "#1e3a2f",
+  "icons": [
+    {"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/static/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ],
+  "shortcuts": [
+    {"name": "Zbiór jaj", "url": "/#/jaja/zbior", "icons": [{"src": "/static/icons/icon-192.png", "sizes": "192x192"}]},
+    {"name": "Sprzedaż", "url": "/#/sprzedaz", "icons": [{"src": "/static/icons/icon-192.png", "sizes": "192x192"}]},
+    {"name": "Sterowanie", "url": "/#/sterowanie", "icons": [{"src": "/static/icons/icon-192.png", "sizes": "192x192"}]}
+  ]
+}

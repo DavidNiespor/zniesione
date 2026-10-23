@@ -227,6 +227,12 @@ def create_app(test_config=None):
     def index():
         return page, 200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache"}
 
+    @app.get("/sw.js")
+    def service_worker():  # z katalogu głównego, żeby obejmował całą aplikację
+        r = send_from_directory(static, "sw.js", mimetype="text/javascript", max_age=0)
+        r.headers["Cache-Control"] = "no-cache"
+        return r
+
     @app.get("/prototype")
     def prototype():
         return send_from_directory(os.path.join(app.root_path, "static"), "prototype.html")

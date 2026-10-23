@@ -70,3 +70,17 @@ def test_index_links_assets_by_content_version(app):
     r = app.test_client().get("/")
     html = r.get_data(as_text=True)
     assert "?v=2" not in html and "/static/app.js?v=" in html and r.headers["Cache-Control"] == "no-cache"
+
+
+def test_installable_app_manifest_service_worker_and_icons(app):
+    import json
+    c = app.test_client()
+    html = c.get("/").get_data(as_text=True)
+    assert 'rel="manifest"' in html and "apple-touch-icon" in html
+    m = json.loads(c.get("/static/manifest.webmanifest").get_data(as_text=True))
+    assert m["display"] == "standalone" and {i["sizes"] for i in m["icons"]} >= {"192x192", "512x512"}
+    for i in m["icons"]:
+        r = c.get(i["src"])
+        assert r.status_code == 200 and r.data[:4] == bytes([137, 80, 78, 71])  # nagłówek PNG
+    sw = c.get("/sw.js")
+    assert sw.status_code == 200 and "javascript" in sw.headers["Content-Type"] and "/api/" in sw.get_data(as_text=True)
