@@ -161,7 +161,8 @@ Rolnik dodaje wtedy w Sterownikach **Sterownik z Home Assistant**:
    lub inny klient). Portal łączy się z HA pod adresem z linii `Address`, port 8123. Druga możliwość: adres HA w internecie
    (np. Nabu Casa albo tunel Cloudflare); adresy wewnętrzne serwera i lokalne są odrzucane.
 3. **Wybierz encje z Home Assistant**: zaznacz przełączniki (switch, light, input_boolean, fan), nadaj nazwy i rodzaje
-   (światło, drzwi: otwórz / zamknij, wentylacja...) oraz czujniki temperatury i wilgotności.
+   (światło, drzwi: otwórz / zamknij, wentylacja...) oraz czujniki temperatury i wilgotności. Roleta (cover) może być drzwiami
+   (open_cover / close_cover, stan otwarte/zamknięte z HA) albo zwykłym urządzeniem (włączone = otwarte).
 
 Portal steruje encjami przez REST API HA (`/api/services/<domena>/turn_on|turn_off`), a co minutę sprawdza połączenie
 i odczytuje czujniki. Harmonogramy, termostat i impulsy drzwi działają jak w sterownikach z oferty, ale bez internetu

@@ -1027,15 +1027,20 @@ function haGuess(x) {  // rodzaj z nazwy encji, do zmiany w formularzu
 }
 function haEntForm(d, e) {
   const cur = Object.fromEntries(d.channels.map(c => [c.key, c])), kinds = Object.keys(KIND);
+  // roleta (cover): jako drzwi daje dwa kanały otwórz / zamknij; zapisane drzwi poznajemy po kanale „encja:open”
+  for (const x of e.switches.filter(x => x.cover)) if (cur[x.entity_id + ':open']) cur[x.entity_id] = {name: cur[x.entity_id + ':open'].name.replace(/: otwórz$/, ''), kind: 'door'};
+  const kindOpts = (x, sel) => (x.cover ? [['door', 'Drzwi / roleta: otwórz i zamknij']] : []).concat(kinds.filter(k => !(x.cover && DOORS.includes(k))).map(k => [k, kname(k)]))
+    .map(([k, t]) => `<option value="${k}"${sel === k ? ' selected' : ''}>${esc(t)}</option>`).join('');
   return `<form data-f="hachan" data-id="${d.id}"><fieldset><legend>Przełączniki do sterowania</legend>${e.switches.map((x, i) => `<div class="row haent">
     <label class="chk"><input type="checkbox" name="on_${i}" ${cur[x.entity_id] ? 'checked' : ''}> <span><b>${esc(x.name)}</b><br><span class="mu">${esc(x.entity_id)} · ${esc(x.state)}</span></span></label>
     <input type="hidden" name="ent_${i}" value="${esc(x.entity_id)}">
     <div><label for="hn${d.id}_${i}">Nazwa w portalu</label><input id="hn${d.id}_${i}" name="name_${i}" maxlength="60" value="${esc(cur[x.entity_id] ? cur[x.entity_id].name : x.name.slice(0, 60))}"></div>
-    <div><label for="hk${d.id}_${i}">Rodzaj</label><select id="hk${d.id}_${i}" name="kind_${i}">${kinds.map(k => `<option value="${k}"${(cur[x.entity_id] ? cur[x.entity_id].kind : haGuess(x)) === k ? ' selected' : ''}>${esc(kname(k))}</option>`).join('')}</select></div></div>`).join('')
-    || '<p class="mu">Home Assistant nie ma encji switch, light, input_boolean ani fan.</p>'}</fieldset>
+    <input type="hidden" name="cov_${i}" value="${x.cover ? 1 : ''}">
+    <div><label for="hk${d.id}_${i}">Rodzaj</label><select id="hk${d.id}_${i}" name="kind_${i}">${kindOpts(x, cur[x.entity_id] ? cur[x.entity_id].kind : x.cover ? 'door' : haGuess(x))}</select></div></div>`).join('')
+    || '<p class="mu">Home Assistant nie ma encji switch, light, input_boolean, fan ani cover.</p>'}</fieldset>
     <div class="row">${[['temp', 't', 'Czujnik temperatury', d.ha_temp], ['hum', 'h', 'Czujnik wilgotności', d.ha_hum]].map(([n, k, l, v]) => `<div><label for="hs${n}${d.id}">${l}</label>
       <select id="hs${n}${d.id}" name="${n}"><option value="">— brak —</option>${e.sensors.filter(x => x.kind === k).map(x => `<option value="${esc(x.entity_id)}"${x.entity_id === v ? ' selected' : ''}>${esc(x.name)} (${esc(x.state)} ${esc(x.unit)})</option>`).join('')}</select></div>`).join('')}</div>
-    <p class="mu">Drzwi: zaznacz dwa przełączniki i ustaw rodzaj „Drzwi: otwórz” i „Drzwi: zamknij”, portal włączy je impulsem jak w sterownikach z oferty.</p>
+    <p class="mu">Drzwi: roleta (cover) jako „Drzwi / roleta” albo dwa przełączniki z rodzajem „Drzwi: otwórz” i „Drzwi: zamknij”; portal steruje nimi jak drzwiami w sterownikach z oferty.</p>
     <div class="actions"><button class="pri">Zapisz encje</button></div></form>`;
 }
 const camForm = (bs, c) => `<form data-f="camera" data-id="${c ? c.id : ''}"><div class="row"><div><label for="cn${c ? c.id : ''}">Nazwa</label><input id="cn${c ? c.id : ''}" name="name" required maxlength="60" value="${c ? esc(c.name) : ''}" placeholder="np. Kurnik od środka"></div>
@@ -1618,7 +1623,12 @@ const FORMS = {
   },
   async hachan(f, v) {
     const channels = [];
-    for (let i = 0; 'ent_' + i in v; i++) if ('on_' + i in v) channels.push({entity_id: v['ent_' + i], name: v['name_' + i], kind: v['kind_' + i]});
+    for (let i = 0; 'ent_' + i in v; i++) {
+      if (!('on_' + i in v)) continue;
+      const e = v['ent_' + i], n = v['name_' + i], k = v['kind_' + i];
+      if (v['cov_' + i] && k === 'door') channels.push({entity_id: e + ':open', name: n.slice(0, 50) + ': otwórz', kind: 'door_open'}, {entity_id: e + ':close', name: n.slice(0, 50) + ': zamknij', kind: 'door_close'});
+      else channels.push({entity_id: e, name: n, kind: k});
+    }
     if (done(await api('PUT', `/api/my/devices/${f.dataset.id}/ha/channels`, {channels, temp: v.temp, hum: v.hum}), `Zapisano encje: ${channels.length}`)) await refresh();
   },
   async camera(f, v) {

@@ -340,6 +340,19 @@ def builder_call(cfg, method, path, body=None, raw=False):
 
 
 HA_DOMAINS = ("switch", "light", "input_boolean", "fan")  # encje, które portal włącza i wyłącza (usługi turn_on / turn_off)
+# cover (roleta, brama, drzwi kurnika): open_cover / close_cover. Jako drzwi to dwa kanały: „cover.x:open” i „cover.x:close”
+# (impuls jak przekaźniki drzwi; koniec impulsu nic nie wysyła, bo roleta zatrzymuje się sama). Jeden kanał „cover.x”:
+# włączone = otwarte, wyłączone = zamknięte.
+COVER_SIDES = {"open": "door_open", "close": "door_close"}
+
+
+def ha_channel_ok(key):
+    """Klucz kanału z Home Assistant: encja switch/light/input_boolean/fan, cover.x albo cover.x:open|close."""
+    if not isinstance(key, str) or len(key) > 120 or "." not in key:
+        return False
+    ent, _, side = key.partition(":")
+    dom = ent.split(".", 1)[0]
+    return (dom in HA_DOMAINS and not side) or (dom == "cover" and side in ("", *COVER_SIDES))
 
 
 def ha_base(dev):
@@ -413,11 +426,18 @@ def _ha_call(dev, method, path, body=None):
 
 def send_http(dev, ch, state):
     """Wysyła polecenie do urządzenia przez tunel. Ścieżkę zweryfikuj z web_server ESPHome na sprzęcie."""
-    if dev["model"] == "ha":  # kanał = encja Home Assistant, np. switch.kurnik_swiatlo
-        domain = ch.split(".", 1)[0]
-        if domain not in HA_DOMAINS:
+    if dev["model"] == "ha":  # kanał = encja Home Assistant, np. switch.kurnik_swiatlo albo cover.kurnik_roleta:open
+        if not ha_channel_ok(ch):
             return False, "Nieobsługiwana encja Home Assistant"
-        code, js = ha_call(dev, "POST", f"/api/services/{domain}/turn_{'on' if state else 'off'}", {"entity_id": ch})
+        ent, _, side = ch.partition(":")
+        domain = ent.split(".", 1)[0]
+        if domain == "cover":
+            if side and not state:
+                return True, None  # koniec impulsu drzwi: roleta zatrzymuje się sama
+            service = ("open_cover" if side == "open" else "close_cover") if side else ("open_cover" if state else "close_cover")
+        else:
+            service = f"turn_{'on' if state else 'off'}"
+        code, js = ha_call(dev, "POST", f"/api/services/{domain}/{service}", {"entity_id": ent})
         return (True, None) if code == 200 else (False, js.get("error") if isinstance(js, dict) else f"HTTP {code}")
     if dev["model"] == "shp":
         return False, "MQTT jeszcze nie zaimplementowane"
@@ -533,6 +553,13 @@ def poll_ha(app, now):
                         vals[k] = float(js["state"]) if c2 == 200 else None
                     except (TypeError, ValueError, KeyError):
                         vals[k] = None  # np. "unavailable"
+            cov = db.execute("SELECT key FROM channels WHERE device_id=? AND key LIKE 'cover.%:open'", (d["id"],)).fetchone()
+            if cov:  # drzwi z rolety HA: stan otwarte / zamknięte prosto z Home Assistant
+                c3, js = app.config["HA_CALL"](dict(d), "GET", f"/api/states/{cov['key'].split(':')[0]}")
+                st = js.get("state") if c3 == 200 and isinstance(js, dict) else None
+                door = {"open": "open", "opening": "open", "closed": "closed", "closing": "closed"}.get(st)
+                if door:
+                    db.execute("UPDATE devices SET door=? WHERE id=?", (door, d["id"]))
             db.execute("UPDATE devices SET online=1, last_seen=?, ha_error='' WHERE id=?", (now.isoformat(), d["id"]))
             if any(v is not None for v in vals.values()):
                 db.execute("INSERT INTO readings(device_id,t,h,at) VALUES(?,?,?,?)", (d["id"], vals.get("t"), vals.get("h"), now.isoformat()))

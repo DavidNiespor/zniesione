@@ -151,8 +151,8 @@ def register(app, need, q, commit, body, err, integer, dev_json, wg_sync, own_de
             eid, at = str(e.get("entity_id", "")), e.get("attributes") or {}
             item = dict(entity_id=eid, name=str(at.get("friendly_name") or eid)[:80], state=str(e.get("state", ""))[:30])
             dom = eid.split(".", 1)[0]
-            if dom in sv.HA_DOMAINS:
-                sw.append(item)
+            if dom in sv.HA_DOMAINS or dom == "cover":
+                sw.append(dict(item, cover=dom == "cover"))
             elif dom == "sensor" and (at.get("device_class") in ("temperature", "humidity") or at.get("unit_of_measurement") in ("°C", "%")):
                 sens.append(dict(item, kind="h" if at.get("device_class") == "humidity" or at.get("unit_of_measurement") == "%" else "t",
                                  unit=str(at.get("unit_of_measurement") or "")))
@@ -167,14 +167,17 @@ def register(app, need, q, commit, body, err, integer, dev_json, wg_sync, own_de
         d, b = ha_device(did), body()
         if not d:
             return err("Nie znaleziono", 404)
-        chans, ent = b.get("channels", []), lambda s: isinstance(s, str) and len(s) <= 120 and s.split(".", 1)[0] in sv.HA_DOMAINS and "." in s
+        chans, ent = b.get("channels", []), sv.ha_channel_ok
         if not isinstance(chans, list) or len(chans) > 16:
             return err("Najwyżej 16 encji")
         keys = []
         for c in chans:
             if not isinstance(c, dict) or not ent(c.get("entity_id")) or c.get("kind", "other") not in cat.KINDS \
                     or not isinstance(c.get("name"), str) or not c["name"].strip() or len(c["name"]) > 60 or c["entity_id"] in keys:
-                return err("Każda encja: entity_id (switch, light, input_boolean, fan), nazwa do 60 znaków i rodzaj urządzenia")
+                return err("Każda encja: entity_id (switch, light, input_boolean, fan, cover), nazwa do 60 znaków i rodzaj urządzenia")
+            side = c["entity_id"].partition(":")[2]
+            if side and c.get("kind") != sv.COVER_SIDES[side]:
+                return err("Roleta jako drzwi: kanał :open to „Drzwi: otwórz”, a :close to „Drzwi: zamknij”")
             keys.append(c["entity_id"])
         for k in ("temp", "hum"):
             v = b.get(k, "")

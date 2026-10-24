@@ -185,7 +185,7 @@ Scenariusze do przejścia ręcznie (najlepiej na telefonie lub w trybie telefonu
 9. Rolnik, Więcej, Sterowniki: T-Relay jest domyślny i oznaczony jako najtańszy; T-Relay z Tailscale zostaje odrzucony.
 
 ## Testy automatyczne
-    python -m pytest -q                                  # 123 testy API i logiki
+    python -m pytest -q                                  # 124 testy API i logiki
     cd tests/e2e && npm i && cd ../.. && node tests/e2e/run.js   # 135 kroków przez interfejs (jsdom), każdy system
 `run.js` zakłada bazę w katalogu tymczasowym, uruchamia atrapę urządzenia (port 9123) i serwer Flaska (port 8765);
 porty i interpreter zmienisz zmiennymi `DEV_PORT`, `WEB_PORT`, `PYTHON`. `tests/e2e/run.sh` tylko wywołuje `run.js`.

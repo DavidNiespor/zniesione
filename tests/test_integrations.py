@@ -224,3 +224,42 @@ def test_ha_call_real_http_errors_are_explained():
     s.close()                                                                            # port na pewno zamknięty
     c, js = sv.ha_call({"tunnel": "url", "ha_url": f"http://127.0.0.1:{port}", "ha_token": "t", "ip": ""}, "GET", "/api/")
     assert c == 503 and "odrzucone" in js["error"]
+
+
+def test_ha_cover_as_door_and_as_single_channel(app, admin, farmer):
+    """Roleta z HA (cover.*): jako drzwi dwa kanały otwórz / zamknij (open_cover / close_cover), stan drzwi z HA."""
+    from datetime import timedelta
+    c, ha = ha_farm(app, admin, farmer)
+    ha.states.append({"entity_id": "cover.kurnik_coop_kurnik_roleta", "state": "closed", "attributes": {"friendly_name": "Kurnik roleta"}})
+    d = c.post("/api/my/ha-devices", {"addr": "Kurnik (HA)", "tunnel": "wg", "token": "dobry"}).get_json()
+    sw = c.get(f"/api/my/devices/{d['id']}/ha/entities").get_json()["switches"]
+    assert {"entity_id": "cover.kurnik_coop_kurnik_roleta", "cover": True}.items() <= sw[0].items()
+    ent = "cover.kurnik_coop_kurnik_roleta"
+    bad = [{"entity_id": ent + ":open", "name": "X", "kind": "light"}]                     # strona :open musi być „Drzwi: otwórz”
+    assert c.put(f"/api/my/devices/{d['id']}/ha/channels", {"channels": bad}).status_code == 400
+    assert c.put(f"/api/my/devices/{d['id']}/ha/channels", {"channels": [{"entity_id": ent + ":up", "name": "X", "kind": "other"}]}).status_code == 400
+    r = c.put(f"/api/my/devices/{d['id']}/ha/channels", {"channels": [
+        {"entity_id": ent + ":open", "name": "Roleta: otwórz", "kind": "door_open"},
+        {"entity_id": ent + ":close", "name": "Roleta: zamknij", "kind": "door_close"}]}).get_json()
+    assert [x["kind"] for x in r["channels"]] == ["door_open", "door_close"]
+    import zniesione.services as s2
+    orig, s2.ha_call = s2.ha_call, ha
+    app.config["SEND"] = sv.send_http
+    try:
+        sv.tick(app, datetime.now())                                                      # HA online, stan rolety: zamknięta
+        assert c.get("/api/my/devices").get_json()[0]["door"] == "closed"
+        assert c.post(f"/api/my/devices/{d['id']}/door", {"action": "open"}).status_code == 200
+        assert ha.calls[-1][1:] == ("POST", "/api/services/cover/open_cover", {"entity_id": ent})
+        n = len(ha.calls)
+        sv.tick(app, datetime.now() + timedelta(seconds=d["door_run_s"] + 5))             # koniec impulsu: bez polecenia do HA
+        assert not [x for x in ha.calls[n:] if x[1] == "POST"]
+        c.post(f"/api/my/devices/{d['id']}/door", {"action": "close"})
+        assert ha.calls[-1][1:] == ("POST", "/api/services/cover/close_cover", {"entity_id": ent})
+        # roleta jako zwykłe urządzenie: włączone = otwarte, wyłączone = zamknięte
+        c.put(f"/api/my/devices/{d['id']}/ha/channels", {"channels": [{"entity_id": ent, "name": "Klapa", "kind": "vent"}]})
+        c.post(f"/api/my/devices/{d['id']}/channels/{ent}", {"state": True})
+        assert ha.calls[-1][1:3] == ("POST", "/api/services/cover/open_cover")
+        c.post(f"/api/my/devices/{d['id']}/channels/{ent}", {"state": False})
+        assert ha.calls[-1][1:3] == ("POST", "/api/services/cover/close_cover")
+    finally:
+        s2.ha_call = orig
