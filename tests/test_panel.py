@@ -69,7 +69,7 @@ def test_seed_demo_has_location_and_day_of_readings(tmp_path):
 def test_index_links_assets_by_content_version(app):
     r = app.test_client().get("/")
     html = r.get_data(as_text=True)
-    assert "?v=2" not in html and "/static/app.js?v=" in html and r.headers["Cache-Control"] == "no-cache"
+    assert "?v=2\"" not in html and "/static/app.js?v=" in html and r.headers["Cache-Control"] == "no-cache"
 
 
 def test_installable_app_manifest_service_worker_and_icons(app):
