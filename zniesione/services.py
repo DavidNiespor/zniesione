@@ -353,11 +353,18 @@ def ha_error(code, text, wg):
     if code == 403:
         return ("Połączenie zablokowane (403)" + (": to strona Cloudflare. Wyłącz dla tego adresu Bot Fight Mode / Cloudflare Access "
                 "albo połącz HA przez WireGuard." if "cloudflare" in text.lower() else ". Sprawdź token i ustawienia http w Home Assistant."))
+    if code == 400:
+        return ("Home Assistant odrzucił zapytanie (400). Gdy HA stoi za Traefikiem: w configuration.yaml w sekcji http ustaw "
+                "use_x_forwarded_for: true i trusted_proxies z adresem (siecią) Traefika, potem zrestartuj HA.")
+    if code in (502, 503, 504):
+        return f"Serwer pośredniczący (np. Traefik) nie może połączyć się z Home Assistant (HTTP {code}). Sprawdź usługę HA w Traefiku."
     if code == 404:
         return "Pod tym adresem nie ma API Home Assistant (404). Podaj sam adres HA, bez ścieżki, np. https://dom.example.pl"
     if code == "html":
         return ("Adres zwraca stronę zamiast API Home Assistant" + (" (prawdopodobnie Cloudflare). Wyłącz ochronę przed botami dla tego adresu "
-                "albo połącz HA przez WireGuard." if "cloudflare" in text.lower() else ". Sprawdź, czy to adres HA, a nie np. strona logowania."))
+                "albo połącz HA przez WireGuard." if "cloudflare" in text.lower() else
+                ": zwykle logowanie przed HA w Traefiku (Authelia, Authentik, forward-auth, basic auth). Wyłącz je dla ścieżki /api "
+                "tej usługi albo połącz HA przez WireGuard."))
     if code == "timeout":
         return ("Home Assistant nie odpowiada w tunelu WireGuard. Sprawdź w HA, czy dodatek WireGuard jest uruchomiony z konfiguracją z portalu "
                 "(status połączenia, Endpoint i port UDP otwarty na serwerze)." if wg else "Home Assistant nie odpowiada pod tym adresem (przekroczony czas).")
@@ -371,7 +378,14 @@ def ha_error(code, text, wg):
 
 
 def ha_call(dev, method, path, body=None):
-    """REST API Home Assistant (token długoterminowy). Zwraca (kod HTTP, JSON albo {"error": powód})."""
+    """REST API Home Assistant (token długoterminowy). Zwraca (kod HTTP, JSON albo {"error": powód}). Powód zawiera adres zapytania."""
+    code, js = _ha_call(dev, method, path, body)
+    if isinstance(js, dict) and code != 200 and "error" in js:
+        js = {"error": f"{js['error']} (adres: {ha_base(dev)}{path})"}
+    return code, js
+
+
+def _ha_call(dev, method, path, body=None):
     wg = dev["tunnel"] == "wg"
     req = urllib.request.Request(ha_base(dev) + path, method=method, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Authorization": f"Bearer {(dev['ha_token'] or '').strip()}", "Content-Type": "application/json",

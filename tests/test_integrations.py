@@ -187,7 +187,9 @@ def test_ha_call_real_http_errors_are_explained():
             code, ctype, body = {"/ok/api/": (200, "application/json", _json.dumps({"message": "API running."})),
                                  "/bad/api/": (401, "application/json", "{}"),
                                  "/cf/api/": (403, "text/html", "<title>Attention Required! | Cloudflare</title>"),
-                                 "/html/api/": (200, "text/html", "<html>Cloudflare challenge</html>")}.get(self.path, (404, "text/plain", "x"))
+                                 "/html/api/": (200, "text/html", "<html>Cloudflare challenge</html>"),
+                                 "/proxy/api/": (400, "text/plain", "400: Bad Request"),
+                                 "/login/api/": (200, "text/html", "<html>Authelia</html>")}.get(self.path, (404, "text/plain", "x"))
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.end_headers()
@@ -208,6 +210,10 @@ def test_ha_call_real_http_errors_are_explained():
         assert c == 403 and "Cloudflare" in js["error"]
         c, js = sv.ha_call(dev("/html"), "GET", "/api/")
         assert c == 502 and "stronę zamiast API" in js["error"]
+        c, js = sv.ha_call(dev("/proxy"), "GET", "/api/")
+        assert c == 400 and "trusted_proxies" in js["error"] and f"(adres: {base}/proxy/api/)" in js["error"]   # HA za Traefikiem
+        c, js = sv.ha_call(dev("/login"), "GET", "/api/")
+        assert c == 502 and "Authelia" in js["error"]
         c, js = sv.ha_call(dev("/x"), "GET", "/api/")
         assert c == 404 and "bez ścieżki" in js["error"]
     finally:

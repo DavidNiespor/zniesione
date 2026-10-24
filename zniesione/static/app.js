@@ -1519,7 +1519,8 @@ const ACT = {
     const box = $(`[data-haent="${b.dataset.id}"]`), d = (await load('/api/my/devices')).find(x => x.id === +b.dataset.id);
     box.innerHTML = '<p class="loading" role="status">Pytam Home Assistant…</p>';
     const r = await api('GET', `/api/my/devices/${b.dataset.id}/ha/entities`);
-    box.innerHTML = r.ok ? haEntForm(d, r.data) : `<div class="alert bad" role="alert"><b>Nie udało się połączyć z Home Assistant</b>${esc(errMsg(r))}</div>`;
+    // powód z serwera (token, Cloudflare, Traefik, DNS...), nie ogólny komunikat o kurniku dla kodu 502
+    box.innerHTML = r.ok ? haEntForm(d, r.data) : `<div class="alert bad" role="alert"><b>Nie udało się połączyć z Home Assistant</b>${esc((r.data && r.data.error) || errMsg(r))}</div>`;
   },
   async yaml(b) {
     const pre = $(`[data-yaml="${b.dataset.id}"]`); if (pre.dataset.loaded) return;
